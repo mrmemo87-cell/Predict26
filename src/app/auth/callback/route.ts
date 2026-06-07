@@ -1,5 +1,6 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { getProfilePayload } from "@/lib/auth/profile";
 
 const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
@@ -24,6 +25,7 @@ function getRedirectUrl(request: Request, origin: string, path: string) {
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  const cookieStore = await cookies();
 
   if (!code) {
     console.error("Google OAuth callback missing code");
@@ -32,7 +34,32 @@ export async function GET(request: Request) {
     );
   }
 
-  const supabase = await createClient();
+  // Collect cookies that Supabase sets during code exchange so we can
+  // attach them to the redirect response (NextResponse.redirect creates a
+  // new response object that doesn't inherit cookies set via next/headers).
+  const cookiesToSet: Array<{
+    name: string;
+    value: string;
+    options: Record<string, unknown>;
+  }> = [];
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookies) {
+          cookies.forEach(({ name, value, options }) => {
+            cookiesToSet.push({ name, value, options: options ?? {} });
+          });
+        },
+      },
+    }
+  );
+
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
     code
   );
@@ -73,5 +100,14 @@ export async function GET(request: Request) {
     ? DASHBOARD_PATH
     : ONBOARDING_COUNTRY_PATH;
 
-  return NextResponse.redirect(getRedirectUrl(request, origin, redirectPath));
+  const response = NextResponse.redirect(
+    getRedirectUrl(request, origin, redirectPath)
+  );
+
+  // Attach session cookies to the redirect response so the browser stores them
+  cookiesToSet.forEach(({ name, value, options }) => {
+    response.cookies.set(name, value, options);
+  });
+
+  return response;
 }
