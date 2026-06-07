@@ -1,54 +1,106 @@
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+
+const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
+const DASHBOARD_PATH = "/dashboard";
+
+function getRedirectUrl(request: Request, origin: string, path: string) {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const isLocalEnv = process.env.NODE_ENV === "development";
+
+  if (isLocalEnv) {
+    return `${origin}${path}`;
+  }
+
+  if (forwardedHost) {
+    return `https://${forwardedHost}${path}`;
+  }
+
+  return `${origin}${path}`;
+}
+
+function getStringMetadataValue(
+  metadata: User["user_metadata"],
+  keys: string[]
+) {
+  for (const key of keys) {
+    const value = metadata?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function getProfilePayload(user: User) {
+  const displayName = getStringMetadataValue(user.user_metadata, [
+    "full_name",
+    "name",
+    "display_name",
+  ]);
+  const avatarUrl = getStringMetadataValue(user.user_metadata, [
+    "avatar_url",
+    "picture",
+  ]);
+  const email =
+    user.email ?? getStringMetadataValue(user.user_metadata, ["email"]);
+  const username =
+    getStringMetadataValue(user.user_metadata, [
+      "user_name",
+      "preferred_username",
+      "username",
+    ]) ?? `user_${user.id.slice(0, 8)}`;
+
+  return {
+    id: user.id,
+    email,
+    display_name: displayName,
+    avatar_url: avatarUrl,
+    username,
+  };
+}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
 
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // Check if profile exists, update display_name and avatar from Google
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", user.id)
-          .single();
-
-        if (profile) {
-          // Update profile with Google data if missing
-          await supabase
-            .from("profiles")
-            .update({
-              display_name:
-                user.user_metadata?.full_name || user.user_metadata?.name,
-              avatar_url: user.user_metadata?.avatar_url,
-            })
-            .eq("id", user.id);
-        }
+      if (!user) {
+        return NextResponse.redirect(`${origin}/login?error=missing_user`);
       }
 
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const isLocalEnv = process.env.NODE_ENV === "development";
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .upsert(getProfilePayload(user), { onConflict: "id" })
+        .select("country_code")
+        .single();
 
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`);
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
-      } else {
-        return NextResponse.redirect(`${origin}${next}`);
+      if (profileError) {
+        return NextResponse.redirect(
+          `${origin}/login?error=profile_upsert_error`
+        );
       }
+
+      const redirectPath = profile.country_code
+        ? DASHBOARD_PATH
+        : ONBOARDING_COUNTRY_PATH;
+
+      return NextResponse.redirect(
+        getRedirectUrl(request, origin, redirectPath)
+      );
     }
   }
 
-  // Auth error - redirect to login with error
   return NextResponse.redirect(`${origin}/login?error=auth_callback_error`);
 }
