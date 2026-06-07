@@ -40,7 +40,7 @@ export async function savePrediction(formData: FormData) {
 
   const match = await fetchPredictionMatchById(supabase, matchId);
 
-  if (!match || !isPredictableMatchStatus(match.status) || new Date(match.kickoff_at) <= new Date()) {
+  if (!match || !isPredictableMatchStatus(match.status) || (match.kickoff_at && new Date(match.kickoff_at) <= new Date())) {
     redirect("/predictions?error=locked");
   }
 

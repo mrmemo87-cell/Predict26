@@ -1,101 +1,125 @@
 import { createClient } from "@/lib/supabase/server";
+import { WORLD_CUP_SLUG } from "@/lib/domain/constants";
 
 export type UpcomingPredictionMatch = {
   id: string;
   home_team: string;
   away_team: string;
-  kickoff_at: string;
+  kickoff_at: string | null;
   stage: string | null;
   status: string;
   venue: string | null;
   home_country_code: string | null;
   away_country_code: string | null;
+  home_score: number | null;
+  away_score: number | null;
 };
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-type MatchDateColumn = "kickoff_at" | "kickoff_time" | "start_time";
-
-type MatchSelectAttempt = {
-  select: string;
-  dateColumn: MatchDateColumn;
+type RawMatchRow = {
+  id?: string;
+  home_team_name?: string | null;
+  away_team_name?: string | null;
+  home_country_code?: string | null;
+  away_country_code?: string | null;
+  home_team_code?: string | null;
+  away_team_code?: string | null;
+  kickoff_at?: string | null;
+  stage?: string | null;
+  group_name?: string | null;
+  status?: string | null;
+  venue?: string | null;
+  home_score?: number | null;
+  away_score?: number | null;
 };
-
-type RawMatchRow = Partial<UpcomingPredictionMatch>;
-
-type MatchQuery = {
-  in(column: string, values: readonly string[]): PromiseLike<{ data: unknown; error: unknown }>;
-  eq(column: string, value: string): PromiseLike<{ data: unknown; error: unknown }>;
-};
-
-const PREDICTABLE_STATUSES = ["scheduled", "upcoming"] as const;
-
-const matchSelectAttempts: MatchSelectAttempt[] = [
-  {
-    select: "id, home_team, away_team, kickoff_at, stage, status, venue, home_country_code, away_country_code",
-    dateColumn: "kickoff_at",
-  },
-  {
-    select: "id, home_team, away_team, kickoff_at, stage, status, venue",
-    dateColumn: "kickoff_at",
-  },
-  {
-    select:
-      "id, home_team:home_team_name, away_team:away_team_name, kickoff_at, stage, status, venue, home_country_code:home_team_code, away_country_code:away_team_code",
-    dateColumn: "kickoff_at",
-  },
-  {
-    select: "id, home_team, away_team, kickoff_at:kickoff_time, stage, status, venue, home_country_code, away_country_code",
-    dateColumn: "kickoff_time",
-  },
-  {
-    select: "id, home_team, away_team, kickoff_at:start_time, stage, status, venue, home_country_code, away_country_code",
-    dateColumn: "start_time",
-  },
-];
 
 const normalizeMatch = (match: RawMatchRow): UpcomingPredictionMatch => ({
   id: match.id ?? "",
-  home_team: match.home_team ?? "TBD",
-  away_team: match.away_team ?? "TBD",
-  kickoff_at: match.kickoff_at ?? new Date().toISOString(),
-  stage: match.stage ?? null,
+  home_team: match.home_team_name || "Team TBA",
+  away_team: match.away_team_name || "Team TBA",
+  kickoff_at: match.kickoff_at || null,
+  stage: match.stage || match.group_name || null,
   status: match.status ?? "scheduled",
   venue: match.venue ?? null,
-  home_country_code: match.home_country_code ?? null,
-  away_country_code: match.away_country_code ?? null,
+  home_country_code: match.home_country_code || match.home_team_code || null,
+  away_country_code: match.away_country_code || match.away_team_code || null,
+  home_score: match.home_score ?? null,
+  away_score: match.away_score ?? null,
 });
 
-const statusQueries = [
-  (query: MatchQuery) => query.in("status", PREDICTABLE_STATUSES),
-  (query: MatchQuery) => query.eq("status", "scheduled"),
-  (query: MatchQuery) => query.eq("status", "upcoming"),
-];
+/**
+ * Filter out dev/test teams from production display.
+ * Teams with names starting with "Dev " or codes starting with "X" are excluded
+ * unless running in development mode.
+ */
+function isDevMatch(match: UpcomingPredictionMatch): boolean {
+  if (process.env.NODE_ENV === "development") return false;
+
+  const devNamePattern = /^Dev /i;
+  const devCodePattern = /^X/i;
+
+  if (devNamePattern.test(match.home_team) || devNamePattern.test(match.away_team)) {
+    return true;
+  }
+
+  if (
+    (match.home_country_code && devCodePattern.test(match.home_country_code)) ||
+    (match.away_country_code && devCodePattern.test(match.away_country_code))
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 export function isPredictableMatchStatus(status: string | null | undefined): boolean {
-  return PREDICTABLE_STATUSES.includes((status ?? "").toLowerCase() as (typeof PREDICTABLE_STATUSES)[number]);
+  const s = (status ?? "").toLowerCase();
+  return s === "scheduled" || s === "upcoming";
+}
+
+async function getCompetitionId(supabase: SupabaseServerClient): Promise<string | null> {
+  const { data } = await supabase
+    .from("competitions")
+    .select("id")
+    .eq("slug", WORLD_CUP_SLUG)
+    .maybeSingle();
+
+  return data?.id ?? null;
 }
 
 export async function fetchUpcomingPredictionMatches(
   supabase: SupabaseServerClient,
   limit = 20,
 ): Promise<UpcomingPredictionMatch[]> {
-  const nowIso = new Date().toISOString();
+  const competitionId = await getCompetitionId(supabase);
 
-  for (const attempt of matchSelectAttempts) {
-    for (const applyStatus of statusQueries) {
-      const baseQuery = supabase
-        .from("matches")
-        .select(attempt.select)
-        .gt(attempt.dateColumn, nowIso)
-        .order(attempt.dateColumn, { ascending: true })
-        .limit(limit);
-      const { data, error } = await applyStatus(baseQuery);
+  // Try fetching with competition filter first
+  const selectColumns =
+    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score";
 
-      if (!error) {
-        return ((data as RawMatchRow[] | null) ?? []).map(normalizeMatch);
-      }
+  if (competitionId) {
+    const { data, error } = await supabase
+      .from("matches")
+      .select(selectColumns)
+      .eq("competition_id", competitionId)
+      .order("kickoff_at", { ascending: true, nullsFirst: false })
+      .limit(limit);
+
+    if (!error && data && data.length > 0) {
+      return (data as RawMatchRow[]).map(normalizeMatch).filter((m) => !isDevMatch(m));
     }
+  }
+
+  // Fallback: fetch all matches ordered by kickoff_at
+  const { data, error } = await supabase
+    .from("matches")
+    .select(selectColumns)
+    .order("kickoff_at", { ascending: true, nullsFirst: false })
+    .limit(limit);
+
+  if (!error && data) {
+    return (data as RawMatchRow[]).map(normalizeMatch).filter((m) => !isDevMatch(m));
   }
 
   return [];
@@ -105,16 +129,19 @@ export async function fetchPredictionMatchById(
   supabase: SupabaseServerClient,
   matchId: string,
 ): Promise<UpcomingPredictionMatch | null> {
-  for (const attempt of matchSelectAttempts) {
-    const { data, error } = await supabase
-      .from("matches")
-      .select(attempt.select)
-      .eq("id", matchId)
-      .maybeSingle();
+  const selectColumns =
+    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score";
 
-    if (!error) {
-      return data ? normalizeMatch(data as RawMatchRow) : null;
-    }
+  const { data, error } = await supabase
+    .from("matches")
+    .select(selectColumns)
+    .eq("id", matchId)
+    .maybeSingle();
+
+  if (!error && data) {
+    const match = normalizeMatch(data as RawMatchRow);
+    if (isDevMatch(match)) return null;
+    return match;
   }
 
   return null;
