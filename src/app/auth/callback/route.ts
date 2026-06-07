@@ -1,11 +1,72 @@
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getProfilePayload } from "@/lib/auth/profile";
+
+const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
+const DASHBOARD_PATH = "/dashboard";
+
+function getRedirectUrl(request: Request, origin: string, path: string) {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const isLocalEnv = process.env.NODE_ENV === "development";
+
+  if (isLocalEnv) {
+    return `${origin}${path}`;
+  }
+
+  if (forwardedHost) {
+    return `https://${forwardedHost}${path}`;
+  }
+
+  return `${origin}${path}`;
+}
+
+function getStringMetadataValue(
+  metadata: User["user_metadata"],
+  keys: string[]
+) {
+  for (const key of keys) {
+    const value = metadata?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function getProfilePayload(user: User) {
+  const displayName = getStringMetadataValue(user.user_metadata, [
+    "full_name",
+    "name",
+    "display_name",
+  ]);
+  const avatarUrl = getStringMetadataValue(user.user_metadata, [
+    "avatar_url",
+    "picture",
+  ]);
+  const email =
+    user.email ?? getStringMetadataValue(user.user_metadata, ["email"]);
+  const username =
+    getStringMetadataValue(user.user_metadata, [
+      "user_name",
+      "preferred_username",
+      "username",
+    ]) ?? `user_${user.id.slice(0, 8)}`;
+
+  return {
+    id: user.id,
+    email,
+    display_name: displayName,
+    avatar_url: avatarUrl,
+    username,
+  };
+}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
 
   if (code) {
     const supabase = await createClient();
@@ -16,32 +77,29 @@ export async function GET(request: Request) {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        const profilePayload = getProfilePayload(user);
-
-        await supabase.from("profiles").upsert(profilePayload, {
-          onConflict: "id",
-          ignoreDuplicates: false,
-        });
-
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("country_code")
-          .eq("id", user.id)
-          .single();
-
-        const redirectPath = profile?.country_code ? next : "/onboarding/country";
-        const forwardedHost = request.headers.get("x-forwarded-host");
-        const isLocalEnv = process.env.NODE_ENV === "development";
-
-        if (isLocalEnv) {
-          return NextResponse.redirect(`${origin}${redirectPath}`);
-        } else if (forwardedHost) {
-          return NextResponse.redirect(`https://${forwardedHost}${redirectPath}`);
-        } else {
-          return NextResponse.redirect(`${origin}${redirectPath}`);
-        }
+      if (!user) {
+        return NextResponse.redirect(`${origin}/login?error=missing_user`);
       }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .upsert(getProfilePayload(user), { onConflict: "id" })
+        .select("country_code")
+        .single();
+
+      if (profileError) {
+        return NextResponse.redirect(
+          `${origin}/login?error=profile_upsert_error`
+        );
+      }
+
+      const redirectPath = profile.country_code
+        ? DASHBOARD_PATH
+        : ONBOARDING_COUNTRY_PATH;
+
+      return NextResponse.redirect(
+        getRedirectUrl(request, origin, redirectPath)
+      );
     }
   }
 
