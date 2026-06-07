@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the landing page.
+Open the local development URL printed by Next.js to view the landing page.
 
 ## Scripts
 
