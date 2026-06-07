@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdminUser } from "@/lib/admin/permissions";
+import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const MATCH_STATUSES = ["scheduled", "live", "in_progress", "completed", "postponed", "cancelled"] as const;
+const MATCH_STATUSES = ["scheduled", "live", "in_progress", "completed", "finished", "postponed", "cancelled"] as const;
 const REPORT_STATUSES = ["reviewed", "dismissed", "resolved"] as const;
 
 type MatchStatus = (typeof MATCH_STATUSES)[number];
@@ -79,7 +80,7 @@ export async function saveMatch(formData: FormData) {
     redirect("/admin/matches?error=incomplete_score");
   }
 
-  if ((status === "live" || status === "in_progress" || status === "completed") && homeScore === null) {
+  if ((status === "live" || status === "in_progress" || status === "completed" || status === "finished") && homeScore === null) {
     redirect("/admin/matches?error=score_required_for_status");
   }
 
@@ -132,6 +133,59 @@ export async function saveMatch(formData: FormData) {
 
   revalidatePath("/admin/matches");
   redirect("/admin/matches?saved=1");
+}
+
+export async function scoreMatch(formData: FormData) {
+  await requireAdminUser();
+
+  const matchId = optionalString(formData.get("match_id"));
+
+  if (!matchId) {
+    redirect("/admin/matches?error=match_not_scoreable");
+  }
+
+  const supabase = createAdminClient();
+  const [{ data: match }, { count: predictionCount }, { count: scoredPredictionCount }] = await Promise.all([
+    supabase
+      .from("matches")
+      .select("id, status, home_score, away_score")
+      .eq("id", matchId)
+      .maybeSingle<{ id: string; status: string | null; home_score: number | null; away_score: number | null }>(),
+    supabase
+      .from("predictions")
+      .select("id", { count: "exact", head: true })
+      .eq("match_id", matchId),
+    supabase
+      .from("predictions")
+      .select("id", { count: "exact", head: true })
+      .eq("match_id", matchId)
+      .eq("result_points_applied", true),
+  ]);
+
+  if (match?.status !== "finished" || match.home_score === null || match.away_score === null) {
+    redirect("/admin/matches?error=match_not_scoreable");
+  }
+
+  if ((predictionCount ?? 0) > 0 && predictionCount === scoredPredictionCount) {
+    redirect("/admin/matches?already_scored=1");
+  }
+
+  try {
+    await scoreFinishedMatch(matchId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+
+    if (message.includes("status finished") || message.includes("home_score") || message.includes("away_score")) {
+      redirect("/admin/matches?error=match_not_scoreable");
+    }
+
+    redirect("/admin/matches?error=scoring_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  revalidatePath("/dashboard");
+  revalidatePath("/leaderboard");
+  redirect("/admin/matches?scored=1");
 }
 
 export async function markReportReviewed(formData: FormData) {

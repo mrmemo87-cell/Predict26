@@ -14,8 +14,8 @@ type MatchFormProps = {
   saveAction: (formData: FormData) => Promise<void>;
 };
 
-const STATUS_OPTIONS = ["scheduled", "live", "in_progress", "completed", "postponed", "cancelled"];
-const SCORE_ALLOWED_STATUSES = new Set(["live", "in_progress", "completed"]);
+const STATUS_OPTIONS = ["scheduled", "live", "in_progress", "completed", "finished", "postponed", "cancelled"];
+const SCORE_ALLOWED_STATUSES = new Set(["live", "in_progress", "completed", "finished"]);
 
 const formatDateTimeLocal = (value: string | null | undefined) => {
   if (!value) return "";
@@ -26,7 +26,7 @@ const formatDateTimeLocal = (value: string | null | undefined) => {
 
 const statusLabel = (status: string) => {
   if (status === "in_progress") return "in progress (live)";
-  if (status === "completed") return "completed (finished)";
+  if (status === "completed") return "completed (legacy finished)";
   return status;
 };
 
