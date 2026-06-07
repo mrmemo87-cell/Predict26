@@ -5,7 +5,8 @@ import { getProfilePayload } from "@/lib/auth/profile";
 import { getRedirectUrl } from "@/lib/auth/redirect";
 
 const DASHBOARD_PATH = "/dashboard";
-const LOGIN_CALLBACK_FAILED_PATH = "/login?error=callback_failed";
+const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
+const LOGIN_CALLBACK_FAILED_PATH = "/login?error=auth_callback_failed";
 
 type CookieToSet = {
   name: string;
@@ -14,8 +15,12 @@ type CookieToSet = {
 };
 
 export async function GET(request: Request) {
+  console.info("callback received");
+
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
+  console.info("callback code exists", Boolean(code));
+
   const cookieStore = await cookies();
 
   if (!code) {
@@ -25,13 +30,23 @@ export async function GET(request: Request) {
     );
   }
 
-  // Supabase sets the session cookies during exchangeCodeForSession. Keep a
-  // mutable copy so the same server-side client can read the freshly exchanged
-  // session before the browser receives the redirect response.
+  // Supabase sets session cookies during exchangeCodeForSession. Keep a mutable
+  // copy so this route can read the fresh session before the browser receives
+  // the redirect response.
   const mutableCookies = new Map(
     cookieStore.getAll().map((cookie) => [cookie.name, cookie.value])
   );
   const cookiesToSet: CookieToSet[] = [];
+
+  const redirectWithCookies = (path: string) => {
+    const response = NextResponse.redirect(getRedirectUrl(request, path));
+
+    cookiesToSet.forEach(({ name, value, options }) => {
+      response.cookies.set(name, value, options);
+    });
+
+    return response;
+  };
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,12 +69,11 @@ export async function GET(request: Request) {
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
     code
   );
+  console.info("callback session exchange succeeded", !exchangeError);
 
   if (exchangeError) {
-    console.error("Google OAuth code exchange failed", exchangeError);
-    return NextResponse.redirect(
-      getRedirectUrl(request, LOGIN_CALLBACK_FAILED_PATH)
-    );
+    console.error("Google OAuth code exchange failed", exchangeError.message);
+    return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
   }
 
   const {
@@ -68,30 +82,62 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    console.error("Google OAuth callback could not load user", userError);
-    return NextResponse.redirect(
-      getRedirectUrl(request, LOGIN_CALLBACK_FAILED_PATH)
+    console.error(
+      "Google OAuth callback could not load user",
+      userError?.message ?? "missing user"
     );
+    return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
   }
 
-  const { error: profileError } = await supabase
+  const { data: existingProfile, error: lookupError } = await supabase
     .from("profiles")
-    .upsert(getProfilePayload(user), { onConflict: "id" });
+    .select("country_code")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  let profile = existingProfile;
+  let profileError = lookupError;
+
+  if (!profileError) {
+    const profilePayload = getProfilePayload(user);
+
+    if (existingProfile) {
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          id: profilePayload.id,
+          display_name: profilePayload.display_name,
+          avatar_url: profilePayload.avatar_url,
+          username: profilePayload.username,
+        })
+        .eq("id", user.id)
+        .select("country_code")
+        .single();
+
+      profile = updatedProfile;
+      profileError = updateError;
+    } else {
+      const { data: insertedProfile, error: insertError } = await supabase
+        .from("profiles")
+        .insert(profilePayload)
+        .select("country_code")
+        .single();
+
+      profile = insertedProfile;
+      profileError = insertError;
+    }
+  }
+
+  console.info("callback profile upsert succeeded", !profileError);
 
   if (profileError) {
-    // Do not send a successfully authenticated user back to /login because of
-    // profile metadata. The auth trigger/migrations create the required profile
-    // row, and the dashboard/onboarding flow can handle any missing fields.
-    console.error("Google OAuth profile upsert failed", profileError);
+    console.error("Google OAuth profile upsert failed", profileError.message);
+    return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
   }
 
-  const response = NextResponse.redirect(
-    getRedirectUrl(request, DASHBOARD_PATH)
-  );
+  if (!profile?.country_code) {
+    return redirectWithCookies(ONBOARDING_COUNTRY_PATH);
+  }
 
-  cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options);
-  });
-
-  return response;
+  return redirectWithCookies(DASHBOARD_PATH);
 }

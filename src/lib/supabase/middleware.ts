@@ -2,6 +2,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const protectedPaths = ["/dashboard", "/predictions", "/leaderboard", "/onboarding"];
+const publicPaths = ["/", "/login", "/auth/callback"];
+
+const isStaticAsset = (pathname: string) =>
+  pathname.startsWith("/_next/") ||
+  pathname === "/favicon.ico" ||
+  /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml)$/.test(pathname);
+
+const isPublicPath = (pathname: string) =>
+  publicPaths.includes(pathname) || isStaticAsset(pathname);
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -31,12 +40,15 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh session - important for Server Components
+  // Refresh session - important for Server Components.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protected routes - redirect to login if not authenticated
+  if (isPublicPath(request.nextUrl.pathname)) {
+    return supabaseResponse;
+  }
+
   const isProtected = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
@@ -45,13 +57,6 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectTo", request.nextUrl.pathname);
-    return NextResponse.redirect(url);
-  }
-
-  // Redirect logged-in users away from login page
-  if (request.nextUrl.pathname === "/login" && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
