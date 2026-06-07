@@ -9,13 +9,19 @@ export default async function CountryOnboardingPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const params = await searchParams;
+  const errorMessages: Record<string, string> = {
+    save_failed: "Could not save your country. Please try again.",
+    invalid_country: "Please choose one of the available countries.",
+    session_required: "Please sign in again.",
+  };
+  const errorMessage = params.error ? errorMessages[params.error] : null;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirectTo=/onboarding/country");
+    redirect("/login?error=session_required");
   }
 
   const { data: profile } = await supabase
@@ -48,9 +54,9 @@ export default async function CountryOnboardingPage({
           </p>
         </div>
 
-        {params.error && (
+        {errorMessage && (
           <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            Could not save your country. Please choose one of the available countries and try again.
+            {errorMessage}
           </div>
         )}
 
