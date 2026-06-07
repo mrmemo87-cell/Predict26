@@ -2,46 +2,36 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getProfilePayload } from "@/lib/auth/profile";
+import { getRedirectUrl } from "@/lib/auth/redirect";
 
-const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
 const DASHBOARD_PATH = "/dashboard";
 const LOGIN_CALLBACK_FAILED_PATH = "/login?error=callback_failed";
 
-function getRedirectUrl(request: Request, origin: string, path: string) {
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const isLocalEnv = process.env.NODE_ENV === "development";
-
-  if (isLocalEnv) {
-    return `${origin}${path}`;
-  }
-
-  if (forwardedHost) {
-    return `https://${forwardedHost}${path}`;
-  }
-
-  return `${origin}${path}`;
-}
+type CookieToSet = {
+  name: string;
+  value: string;
+  options: Record<string, unknown>;
+};
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const cookieStore = await cookies();
 
   if (!code) {
     console.error("Google OAuth callback missing code");
     return NextResponse.redirect(
-      getRedirectUrl(request, origin, LOGIN_CALLBACK_FAILED_PATH)
+      getRedirectUrl(request, LOGIN_CALLBACK_FAILED_PATH)
     );
   }
 
-  // Collect cookies that Supabase sets during code exchange so we can
-  // attach them to the redirect response (NextResponse.redirect creates a
-  // new response object that doesn't inherit cookies set via next/headers).
-  const cookiesToSet: Array<{
-    name: string;
-    value: string;
-    options: Record<string, unknown>;
-  }> = [];
+  // Supabase sets the session cookies during exchangeCodeForSession. Keep a
+  // mutable copy so the same server-side client can read the freshly exchanged
+  // session before the browser receives the redirect response.
+  const mutableCookies = new Map(
+    cookieStore.getAll().map((cookie) => [cookie.name, cookie.value])
+  );
+  const cookiesToSet: CookieToSet[] = [];
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,10 +39,11 @@ export async function GET(request: Request) {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          return Array.from(mutableCookies, ([name, value]) => ({ name, value }));
         },
         setAll(cookies) {
           cookies.forEach(({ name, value, options }) => {
+            mutableCookies.set(name, value);
             cookiesToSet.push({ name, value, options: options ?? {} });
           });
         },
@@ -67,7 +58,7 @@ export async function GET(request: Request) {
   if (exchangeError) {
     console.error("Google OAuth code exchange failed", exchangeError);
     return NextResponse.redirect(
-      getRedirectUrl(request, origin, LOGIN_CALLBACK_FAILED_PATH)
+      getRedirectUrl(request, LOGIN_CALLBACK_FAILED_PATH)
     );
   }
 
@@ -79,32 +70,25 @@ export async function GET(request: Request) {
   if (userError || !user) {
     console.error("Google OAuth callback could not load user", userError);
     return NextResponse.redirect(
-      getRedirectUrl(request, origin, LOGIN_CALLBACK_FAILED_PATH)
+      getRedirectUrl(request, LOGIN_CALLBACK_FAILED_PATH)
     );
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { error: profileError } = await supabase
     .from("profiles")
-    .upsert(getProfilePayload(user), { onConflict: "id" })
-    .select("country_code")
-    .single();
+    .upsert(getProfilePayload(user), { onConflict: "id" });
 
   if (profileError) {
+    // Do not send a successfully authenticated user back to /login because of
+    // profile metadata. The auth trigger/migrations create the required profile
+    // row, and the dashboard/onboarding flow can handle any missing fields.
     console.error("Google OAuth profile upsert failed", profileError);
-    return NextResponse.redirect(
-      getRedirectUrl(request, origin, LOGIN_CALLBACK_FAILED_PATH)
-    );
   }
 
-  const redirectPath = profile?.country_code
-    ? DASHBOARD_PATH
-    : ONBOARDING_COUNTRY_PATH;
-
   const response = NextResponse.redirect(
-    getRedirectUrl(request, origin, redirectPath)
+    getRedirectUrl(request, DASHBOARD_PATH)
   );
 
-  // Attach session cookies to the redirect response so the browser stores them
   cookiesToSet.forEach(({ name, value, options }) => {
     response.cookies.set(name, value, options);
   });
