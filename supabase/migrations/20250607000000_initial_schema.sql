@@ -1,6 +1,7 @@
 -- Migration: Create core schema for Predict26
 -- Tables: profiles, matches, predictions, referrals
 -- Includes: indexes, RLS policies, comments
+-- Note: This migration is idempotent and safe to re-run.
 
 -- =============================================================================
 -- EXTENSIONS
@@ -12,7 +13,7 @@ create extension if not exists "uuid-ossp" with schema extensions;
 -- PROFILES
 -- =============================================================================
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text unique not null,
   display_name text,
@@ -36,23 +37,26 @@ comment on column public.profiles.referral_code is 'Unique referral code for inv
 comment on column public.profiles.referred_by is 'Profile ID of the user who referred this user.';
 
 -- Indexes for profiles
-create index idx_profiles_country_code on public.profiles(country_code);
-create index idx_profiles_points on public.profiles(points desc);
-create index idx_profiles_referral_code on public.profiles(referral_code);
-create index idx_profiles_referred_by on public.profiles(referred_by);
-create index idx_profiles_created_at on public.profiles(created_at);
+create index if not exists idx_profiles_country_code on public.profiles(country_code);
+create index if not exists idx_profiles_points on public.profiles(points desc);
+create index if not exists idx_profiles_referral_code on public.profiles(referral_code);
+create index if not exists idx_profiles_referred_by on public.profiles(referred_by);
+create index if not exists idx_profiles_created_at on public.profiles(created_at);
 
 -- RLS for profiles
 alter table public.profiles enable row level security;
 
+drop policy if exists "Profiles are viewable by everyone" on public.profiles;
 create policy "Profiles are viewable by everyone"
   on public.profiles for select
   using (true);
 
+drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
   with check (auth.uid() = id);
 
+drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id)
@@ -62,13 +66,20 @@ create policy "Users can update their own profile"
 -- MATCHES
 -- =============================================================================
 
-create type public.match_status as enum ('scheduled', 'live', 'completed', 'cancelled');
-create type public.match_stage as enum (
-  'group', 'round_of_32', 'round_of_16',
-  'quarter_final', 'semi_final', 'third_place', 'final'
-);
+do $$ begin
+  create type public.match_status as enum ('scheduled', 'live', 'completed', 'cancelled');
+exception when duplicate_object then null;
+end $$;
 
-create table public.matches (
+do $$ begin
+  create type public.match_stage as enum (
+    'group', 'round_of_32', 'round_of_16',
+    'quarter_final', 'semi_final', 'third_place', 'final'
+  );
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists public.matches (
   id uuid primary key default gen_random_uuid(),
   home_team_code char(2) not null,
   away_team_code char(2) not null,
@@ -106,16 +117,17 @@ comment on column public.matches.points_multiplier is 'Multiplier for points in 
 comment on column public.matches.status is 'Current status: scheduled, live, completed, or cancelled.';
 
 -- Indexes for matches
-create index idx_matches_kickoff_at on public.matches(kickoff_at);
-create index idx_matches_status on public.matches(status);
-create index idx_matches_stage on public.matches(stage);
-create index idx_matches_home_team on public.matches(home_team_code);
-create index idx_matches_away_team on public.matches(away_team_code);
-create unique index idx_matches_match_number on public.matches(match_number);
+create index if not exists idx_matches_kickoff_at on public.matches(kickoff_at);
+create index if not exists idx_matches_status on public.matches(status);
+create index if not exists idx_matches_stage on public.matches(stage);
+create index if not exists idx_matches_home_team on public.matches(home_team_code);
+create index if not exists idx_matches_away_team on public.matches(away_team_code);
+create unique index if not exists idx_matches_match_number on public.matches(match_number);
 
 -- RLS for matches
 alter table public.matches enable row level security;
 
+drop policy if exists "Matches are viewable by everyone" on public.matches;
 create policy "Matches are viewable by everyone"
   on public.matches for select
   using (true);
@@ -127,9 +139,12 @@ create policy "Matches are viewable by everyone"
 -- PREDICTIONS
 -- =============================================================================
 
-create type public.prediction_outcome as enum ('exact', 'result', 'miss');
+do $$ begin
+  create type public.prediction_outcome as enum ('exact', 'result', 'miss');
+exception when duplicate_object then null;
+end $$;
 
-create table public.predictions (
+create table if not exists public.predictions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   match_id uuid not null references public.matches(id) on delete cascade,
@@ -152,14 +167,15 @@ comment on column public.predictions.outcome is 'Scoring outcome: exact score, c
 comment on column public.predictions.points_earned is 'Points awarded for this prediction. 0 until scored.';
 
 -- Indexes for predictions
-create index idx_predictions_user_id on public.predictions(user_id);
-create index idx_predictions_match_id on public.predictions(match_id);
-create index idx_predictions_submitted_at on public.predictions(submitted_at);
-create index idx_predictions_outcome on public.predictions(outcome) where outcome is not null;
+create index if not exists idx_predictions_user_id on public.predictions(user_id);
+create index if not exists idx_predictions_match_id on public.predictions(match_id);
+create index if not exists idx_predictions_submitted_at on public.predictions(submitted_at);
+create index if not exists idx_predictions_outcome on public.predictions(outcome) where outcome is not null;
 
 -- RLS for predictions
 alter table public.predictions enable row level security;
 
+drop policy if exists "Users can view all predictions for completed matches" on public.predictions;
 create policy "Users can view all predictions for completed matches"
   on public.predictions for select
   using (
@@ -171,6 +187,7 @@ create policy "Users can view all predictions for completed matches"
     or auth.uid() = user_id
   );
 
+drop policy if exists "Users can insert their own predictions before kickoff" on public.predictions;
 create policy "Users can insert their own predictions before kickoff"
   on public.predictions for insert
   with check (
@@ -183,6 +200,7 @@ create policy "Users can insert their own predictions before kickoff"
     )
   );
 
+drop policy if exists "Users can update their own predictions before kickoff" on public.predictions;
 create policy "Users can update their own predictions before kickoff"
   on public.predictions for update
   using (auth.uid() = user_id)
@@ -196,6 +214,7 @@ create policy "Users can update their own predictions before kickoff"
     )
   );
 
+drop policy if exists "Users can delete their own predictions before kickoff" on public.predictions;
 create policy "Users can delete their own predictions before kickoff"
   on public.predictions for delete
   using (
@@ -212,9 +231,12 @@ create policy "Users can delete their own predictions before kickoff"
 -- REFERRALS
 -- =============================================================================
 
-create type public.referral_status as enum ('pending', 'completed', 'expired');
+do $$ begin
+  create type public.referral_status as enum ('pending', 'completed', 'expired');
+exception when duplicate_object then null;
+end $$;
 
-create table public.referrals (
+create table if not exists public.referrals (
   id uuid primary key default gen_random_uuid(),
   referrer_id uuid not null references public.profiles(id) on delete cascade,
   referred_id uuid references public.profiles(id) on delete set null,
@@ -236,19 +258,21 @@ comment on column public.referrals.status is 'pending = invited, completed = sig
 comment on column public.referrals.bonus_points is 'Points awarded to referrer upon completion.';
 
 -- Indexes for referrals
-create index idx_referrals_referrer_id on public.referrals(referrer_id);
-create index idx_referrals_referred_id on public.referrals(referred_id);
-create index idx_referrals_referral_code on public.referrals(referral_code);
-create index idx_referrals_status on public.referrals(status);
-create index idx_referrals_created_at on public.referrals(created_at);
+create index if not exists idx_referrals_referrer_id on public.referrals(referrer_id);
+create index if not exists idx_referrals_referred_id on public.referrals(referred_id);
+create index if not exists idx_referrals_referral_code on public.referrals(referral_code);
+create index if not exists idx_referrals_status on public.referrals(status);
+create index if not exists idx_referrals_created_at on public.referrals(created_at);
 
 -- RLS for referrals
 alter table public.referrals enable row level security;
 
+drop policy if exists "Users can view their own referrals (as referrer)" on public.referrals;
 create policy "Users can view their own referrals (as referrer)"
   on public.referrals for select
   using (auth.uid() = referrer_id or auth.uid() = referred_id);
 
+drop policy if exists "Users can create referrals" on public.referrals;
 create policy "Users can create referrals"
   on public.referrals for insert
   with check (auth.uid() = referrer_id);
@@ -272,14 +296,17 @@ $$;
 comment on function public.handle_updated_at() is 'Automatically sets updated_at to current timestamp on row update.';
 
 -- Apply updated_at triggers
+drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
   before update on public.profiles
   for each row execute function public.handle_updated_at();
 
+drop trigger if exists set_matches_updated_at on public.matches;
 create trigger set_matches_updated_at
   before update on public.matches
   for each row execute function public.handle_updated_at();
 
+drop trigger if exists set_predictions_updated_at on public.predictions;
 create trigger set_predictions_updated_at
   before update on public.predictions
   for each row execute function public.handle_updated_at();
@@ -307,6 +334,7 @@ $$;
 
 comment on function public.handle_new_user() is 'Creates a profile row when a new user signs up via Supabase Auth.';
 
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
