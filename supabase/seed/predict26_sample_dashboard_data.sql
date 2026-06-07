@@ -92,6 +92,10 @@ declare
   match_record record;
   resolved_home_code text;
   resolved_away_code text;
+  legacy_team_code_max_length integer;
+  modern_country_code_max_length integer;
+  home_match_code text;
+  away_match_code text;
 begin
   if to_regclass('public.matches') is null then
     raise notice 'Skipping sample matches because public.matches does not exist.';
@@ -138,6 +142,14 @@ begin
     where table_schema = 'public' and table_name = 'matches' and column_name = 'match_number'
   ) into has_match_number;
 
+  select character_maximum_length into legacy_team_code_max_length
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'matches' and column_name = 'home_team_code';
+
+  select character_maximum_length into modern_country_code_max_length
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'matches' and column_name = 'home_country_code';
+
   if has_competition_id then
     insert into public.competitions (slug, name, is_active)
     values ('world-cup-2026', 'FIFA World Cup 2026', true)
@@ -177,10 +189,20 @@ begin
     resolved_away_code := coalesce(resolved_away_code, match_record.away_alpha3, match_record.away_alpha2);
 
     if has_legacy_team_codes then
+      -- Legacy match schemas use char(2) team codes, while countries may store ISO-3 codes.
+      -- Insert alpha-2 codes here to avoid value-too-long errors.
+      home_match_code := case
+        when coalesce(legacy_team_code_max_length, 2) <= 2 then match_record.home_alpha2
+        else coalesce(resolved_home_code, match_record.home_alpha3, match_record.home_alpha2)
+      end;
+      away_match_code := case
+        when coalesce(legacy_team_code_max_length, 2) <= 2 then match_record.away_alpha2
+        else coalesce(resolved_away_code, match_record.away_alpha3, match_record.away_alpha2)
+      end;
       execute format(
         'insert into public.matches (%s home_team_code, away_team_code, home_team_name, away_team_name, kickoff_at, status, points_multiplier %s %s %s %s)
          select %s $1, $2, $3, $4, $5, %s, 1.0 %s %s %s %s
-         where not exists (select 1 from public.matches where match_number = $10)',
+         where not exists (select 1 from public.matches where %s)',
         case when has_match_number then 'match_number,' else '' end,
         case when has_stage then ', stage' else '' end,
         case when has_group_name then ', group_name' else '' end,
@@ -191,11 +213,24 @@ begin
         case when has_stage then ', $6::public.match_stage' else '' end,
         case when has_group_name then ', $7' else '' end,
         case when has_venue then ', $8' else '' end,
-        case when has_city then ', $9' else '' end
-      ) using resolved_home_code, resolved_away_code, match_record.home_team, match_record.away_team,
+        case when has_city then ', $9' else '' end,
+        case
+          when has_match_number then 'match_number = $10'
+          else 'home_team_name = $3 and away_team_name = $4 and kickoff_at = $5'
+        end
+      ) using home_match_code, away_match_code, match_record.home_team, match_record.away_team,
               match_record.kickoff_at, match_record.stage, match_record.group_name, match_record.venue,
               match_record.city, match_record.match_number;
     elsif has_modern_country_codes then
+      home_match_code := case
+        when coalesce(modern_country_code_max_length, 3) <= 2 then match_record.home_alpha2
+        else coalesce(resolved_home_code, match_record.home_alpha3, match_record.home_alpha2)
+      end;
+      away_match_code := case
+        when coalesce(modern_country_code_max_length, 3) <= 2 then match_record.away_alpha2
+        else coalesce(resolved_away_code, match_record.away_alpha3, match_record.away_alpha2)
+      end;
+
       execute format(
         'insert into public.matches (%s home_team, away_team, home_country_code, away_country_code, kickoff_at, status %s %s %s)
          select %s $1, $2, $3, $4, $5, ''scheduled'' %s %s %s
@@ -211,7 +246,7 @@ begin
         case when has_stage then ', $6' else '' end,
         case when has_venue then ', $7' else '' end,
         case when has_city then ', $8' else '' end
-      ) using match_record.home_team, match_record.away_team, resolved_home_code, resolved_away_code,
+      ) using match_record.home_team, match_record.away_team, home_match_code, away_match_code,
               match_record.kickoff_at, match_record.stage, match_record.venue, match_record.city,
               competition_id;
     else
