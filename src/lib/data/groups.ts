@@ -35,6 +35,15 @@ export async function fetchWorldCupGroups(
 
   for (const row of data) {
     const countryData = Array.isArray(row.countries) ? row.countries[0] : row.countries;
+
+    // Filter out dev teams in production
+    if (process.env.NODE_ENV !== "development") {
+      const countryName = countryData?.name || "";
+      if (/^X/i.test(row.country_code) || /^Dev /i.test(countryName)) {
+        continue;
+      }
+    }
+
     const groupName = row.group_name || "?";
     const team: GroupTeam = {
       country_code: row.country_code,

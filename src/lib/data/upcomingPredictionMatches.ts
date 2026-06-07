@@ -48,6 +48,31 @@ const normalizeMatch = (match: RawMatchRow): UpcomingPredictionMatch => ({
   away_score: match.away_score ?? null,
 });
 
+/**
+ * Filter out dev/test teams from production display.
+ * Teams with names starting with "Dev " or codes starting with "X" are excluded
+ * unless running in development mode.
+ */
+function isDevMatch(match: UpcomingPredictionMatch): boolean {
+  if (process.env.NODE_ENV === "development") return false;
+
+  const devNamePattern = /^Dev /i;
+  const devCodePattern = /^X/i;
+
+  if (devNamePattern.test(match.home_team) || devNamePattern.test(match.away_team)) {
+    return true;
+  }
+
+  if (
+    (match.home_country_code && devCodePattern.test(match.home_country_code)) ||
+    (match.away_country_code && devCodePattern.test(match.away_country_code))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function isPredictableMatchStatus(status: string | null | undefined): boolean {
   const s = (status ?? "").toLowerCase();
   return s === "scheduled" || s === "upcoming";
@@ -82,7 +107,7 @@ export async function fetchUpcomingPredictionMatches(
       .limit(limit);
 
     if (!error && data && data.length > 0) {
-      return (data as RawMatchRow[]).map(normalizeMatch);
+      return (data as RawMatchRow[]).map(normalizeMatch).filter((m) => !isDevMatch(m));
     }
   }
 
@@ -94,7 +119,7 @@ export async function fetchUpcomingPredictionMatches(
     .limit(limit);
 
   if (!error && data) {
-    return (data as RawMatchRow[]).map(normalizeMatch);
+    return (data as RawMatchRow[]).map(normalizeMatch).filter((m) => !isDevMatch(m));
   }
 
   return [];
@@ -114,7 +139,9 @@ export async function fetchPredictionMatchById(
     .maybeSingle();
 
   if (!error && data) {
-    return normalizeMatch(data as RawMatchRow);
+    const match = normalizeMatch(data as RawMatchRow);
+    if (isDevMatch(match)) return null;
+    return match;
   }
 
   return null;
