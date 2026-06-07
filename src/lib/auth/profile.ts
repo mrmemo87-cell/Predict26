@@ -7,6 +7,9 @@ type ProfilePayload = {
   username: string;
 };
 
+const USERNAME_MAX_LENGTH = 24;
+const USERNAME_SUFFIX_LENGTH = 9;
+
 function getStringMetadataValue(
   metadata: User["user_metadata"],
   keys: string[]
@@ -25,6 +28,22 @@ function getStringMetadataValue(
 export const getDefaultUsername = (userId: string) =>
   `user_${userId.slice(0, 8)}`;
 
+function getSafeUsername(candidate: string | null, userId: string) {
+  const suffix = `_${userId.slice(0, USERNAME_SUFFIX_LENGTH - 1)}`;
+  const normalized = candidate
+    ?.toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+
+  if (!normalized || normalized.length < 3) {
+    return getDefaultUsername(userId);
+  }
+
+  const baseLength = USERNAME_MAX_LENGTH - suffix.length;
+  return `${normalized.slice(0, baseLength)}${suffix}`;
+}
+
 export const getProfilePayload = (user: User): ProfilePayload => {
   const displayName =
     getStringMetadataValue(user.user_metadata, [
@@ -38,12 +57,14 @@ export const getProfilePayload = (user: User): ProfilePayload => {
     "avatar_url",
     "picture",
   ]);
-  const username =
+  const username = getSafeUsername(
     getStringMetadataValue(user.user_metadata, [
       "user_name",
       "preferred_username",
       "username",
-    ]) ?? getDefaultUsername(user.id);
+    ]) ?? user.email?.split("@")[0] ?? null,
+    user.id
+  );
 
   return {
     id: user.id,
