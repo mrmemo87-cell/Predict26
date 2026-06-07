@@ -15,12 +15,8 @@ type CookieToSet = {
 };
 
 export async function GET(request: Request) {
-  console.info("callback received");
-
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  console.info("callback code exists", Boolean(code));
-
   const cookieStore = await cookies();
 
   if (!code) {
@@ -68,8 +64,6 @@ export async function GET(request: Request) {
 
   const { data: sessionData, error: exchangeError } =
     await supabase.auth.exchangeCodeForSession(code);
-  console.info("callback session exchange succeeded", !exchangeError);
-
   if (exchangeError || !sessionData.user) {
     console.error(
       "Google OAuth code exchange failed",
@@ -84,8 +78,6 @@ export async function GET(request: Request) {
     .upsert(profilePayload, { onConflict: "id" })
     .select("country_code")
     .single();
-
-  console.info("callback profile upsert succeeded", !profileError);
 
   if (profileError) {
     console.error("Google OAuth profile upsert failed", profileError.message);

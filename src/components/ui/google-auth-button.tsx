@@ -37,10 +37,6 @@ export function GoogleAuthButton({
       provider: "google",
       options: {
         redirectTo: getAuthCallbackUrl(),
-        queryParams: {
-          access_type: "offline",
-          prompt: "consent",
-        },
       },
     });
 
