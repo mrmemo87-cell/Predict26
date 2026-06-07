@@ -1,79 +1,43 @@
 -- 05_seed_sample_matches.sql
--- Predict26: Seed a few sample/dev-safe matches with real teams.
--- Idempotent: checks for existing matches to avoid duplicates.
+-- Predict26: sample/dev-safe matches.
+-- Supports old + new matches columns:
+-- match_number, home_team_code, away_team_code, home_team_name, away_team_name,
+-- home_country_code, away_country_code.
 
--- Use a DO block to insert sample matches only if they don't already exist.
 DO $$
 DECLARE
   v_competition_id UUID;
 BEGIN
-  -- Get the World Cup 2026 competition ID
-  SELECT id INTO v_competition_id FROM competitions WHERE slug = 'world-cup-2026';
+  SELECT id INTO v_competition_id
+  FROM competitions
+  WHERE slug = 'world-cup-2026';
 
   IF v_competition_id IS NULL THEN
     RAISE NOTICE 'Competition world-cup-2026 not found. Skipping sample matches.';
     RETURN;
   END IF;
 
-  -- USA vs CAN (Group A opener)
-  IF NOT EXISTS (
-    SELECT 1 FROM matches
-    WHERE competition_id = v_competition_id
-      AND home_country_code = 'USA' AND away_country_code = 'CAN'
-  ) THEN
-    INSERT INTO matches (competition_id, home_country_code, away_country_code, kickoff_at, status, stage, group_name, venue, city)
-    VALUES (
-      v_competition_id, 'USA', 'CAN',
-      '2026-06-11 18:00:00+00',
-      'scheduled', 'group', 'A',
-      'MetLife Stadium (Sample)', 'East Rutherford, NJ'
-    );
-  END IF;
-
-  -- MEX vs BRA (Group B)
-  IF NOT EXISTS (
-    SELECT 1 FROM matches
-    WHERE competition_id = v_competition_id
-      AND home_country_code = 'MEX' AND away_country_code = 'BRA'
-  ) THEN
-    INSERT INTO matches (competition_id, home_country_code, away_country_code, kickoff_at, status, stage, group_name, venue, city)
-    VALUES (
-      v_competition_id, 'MEX', 'BRA',
-      '2026-06-12 20:00:00+00',
-      'scheduled', 'group', 'B',
-      'Estadio Azteca (Sample)', 'Mexico City'
-    );
-  END IF;
-
-  -- JPN vs KOR (Group G/H)
-  IF NOT EXISTS (
-    SELECT 1 FROM matches
-    WHERE competition_id = v_competition_id
-      AND home_country_code = 'JPN' AND away_country_code = 'KOR'
-  ) THEN
-    INSERT INTO matches (competition_id, home_country_code, away_country_code, kickoff_at, status, stage, group_name, venue, city)
-    VALUES (
-      v_competition_id, 'JPN', 'KOR',
-      '2026-06-13 15:00:00+00',
-      'scheduled', 'group', 'G',
-      'SoFi Stadium (Sample)', 'Los Angeles, CA'
-    );
-  END IF;
-
-  -- FRA vs GER (Group H)
-  IF NOT EXISTS (
-    SELECT 1 FROM matches
-    WHERE competition_id = v_competition_id
-      AND home_country_code = 'FRA' AND away_country_code = 'GER'
-  ) THEN
-    INSERT INTO matches (competition_id, home_country_code, away_country_code, kickoff_at, status, stage, group_name, venue, city)
-    VALUES (
-      v_competition_id, 'FRA', 'GER',
-      '2026-06-14 21:00:00+00',
-      'scheduled', 'group', 'H',
-      'AT&T Stadium (Sample)', 'Arlington, TX'
-    );
-  END IF;
-
+  INSERT INTO matches (
+    match_number,
+    competition_id,
+    home_team_code,
+    away_team_code,
+    home_team_name,
+    away_team_name,
+    home_country_code,
+    away_country_code,
+    kickoff_at,
+    status,
+    stage,
+    group_name,
+    venue,
+    city
+  )
+  VALUES
+    (1, v_competition_id, 'USA', 'CAN', 'United States', 'Canada', 'USA', 'CAN', '2026-06-11 18:00:00+00', 'scheduled', 'group', 'D', 'Sample Stadium', 'Sample City'),
+    (2, v_competition_id, 'MEX', 'RSA', 'Mexico', 'South Africa', 'MEX', 'RSA', '2026-06-12 18:00:00+00', 'scheduled', 'group', 'A', 'Sample Stadium', 'Sample City'),
+    (3, v_competition_id, 'BRA', 'MAR', 'Brazil', 'Morocco', 'BRA', 'MAR', '2026-06-13 18:00:00+00', 'scheduled', 'group', 'C', 'Sample Stadium', 'Sample City'),
+    (4, v_competition_id, 'FRA', 'SEN', 'France', 'Senegal', 'FRA', 'SEN', '2026-06-14 18:00:00+00', 'scheduled', 'group', 'I', 'Sample Stadium', 'Sample City')
+  ON CONFLICT DO NOTHING;
 END
 $$;
