@@ -1,3 +1,5 @@
+import "server-only";
+
 const readEnv = (key: string): string => {
   const value = process.env[key];
 
