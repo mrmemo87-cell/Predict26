@@ -4,7 +4,7 @@ import Link from "next/link";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirectTo?: string; error?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const params = await searchParams;
 
@@ -34,7 +34,7 @@ export default async function LoginPage({
           <form
             action={async () => {
               "use server";
-              await signInWithGoogle(params.redirectTo);
+              await signInWithGoogle();
             }}
           >
             <button

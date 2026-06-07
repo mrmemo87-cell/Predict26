@@ -2,7 +2,6 @@ import type { User } from "@supabase/supabase-js";
 
 type ProfilePayload = {
   id: string;
-  email: string | null;
   display_name: string | null;
   avatar_url: string | null;
   username: string;
@@ -39,8 +38,6 @@ export const getProfilePayload = (user: User): ProfilePayload => {
     "avatar_url",
     "picture",
   ]);
-  const email =
-    user.email ?? getStringMetadataValue(user.user_metadata, ["email"]);
   const username =
     getStringMetadataValue(user.user_metadata, [
       "user_name",
@@ -50,7 +47,6 @@ export const getProfilePayload = (user: User): ProfilePayload => {
 
   return {
     id: user.id,
-    email,
     display_name: displayName,
     avatar_url: avatarUrl,
     username,

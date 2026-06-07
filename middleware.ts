@@ -3,8 +3,20 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const getRuntimeEnv = (key: string) => process.env[key] ?? "";
 const protectedPaths = ["/dashboard", "/predictions", "/leaderboard", "/onboarding"];
+const publicPaths = ["/", "/login", "/auth/callback"];
+const staticAssetPattern = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml)$/i;
+
+const isPublicPath = (pathname: string) =>
+  publicPaths.includes(pathname) ||
+  pathname.startsWith("/_next/static") ||
+  pathname.startsWith("/_next/image") ||
+  staticAssetPattern.test(pathname);
 
 export async function middleware(request: NextRequest) {
+  if (isPublicPath(request.nextUrl.pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -37,15 +49,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (request.nextUrl.pathname === "/login" && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
   return response;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml)$).*)"],
 };
