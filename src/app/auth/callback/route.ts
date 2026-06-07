@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getProfilePayload } from "@/lib/auth/profile";
 
 const ONBOARDING_COUNTRY_PATH = "/onboarding/country";
 const DASHBOARD_PATH = "/dashboard";
