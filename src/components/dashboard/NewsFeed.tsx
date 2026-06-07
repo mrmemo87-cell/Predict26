@@ -23,7 +23,7 @@ export default function NewsFeed({ news }: NewsFeedProps) {
     return (
       <section className="rounded-3xl border border-surface-border bg-surface p-6 sm:p-8">
         <h2 className="mb-4 text-lg font-bold text-white">📰 Latest News</h2>
-        <p className="text-center text-gray-400">No news available yet.</p>
+        <p className="text-center text-gray-400">No tournament updates yet. Check back soon.</p>
       </section>
     );
   }
