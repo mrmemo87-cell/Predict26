@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { countryCodesMatch } from "@/lib/domain/countries";
 import MatchCountdown from "./MatchCountdown";
 
 interface HeroMatch {
@@ -17,6 +18,20 @@ interface CountryHeroProps {
   userCountryCode: string;
 }
 
+function formatStage(stage: string | null): string {
+  if (!stage) {
+    return "World Cup 2026";
+  }
+
+  if (stage.toLowerCase() === "group") {
+    return "Group Stage";
+  }
+
+  return stage
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function CountryHero({ match, userCountryCode }: CountryHeroProps) {
   if (!match) {
     return (
@@ -27,42 +42,43 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
   }
 
   const isUserCountryMatch =
-    match.home_country_code === userCountryCode ||
-    match.away_country_code === userCountryCode;
+    countryCodesMatch(match.home_country_code, userCountryCode) ||
+    countryCodesMatch(match.away_country_code, userCountryCode);
+  const venue = match.venue?.trim() || "Venue TBA";
 
   return (
     <section
       className={`relative overflow-hidden rounded-3xl border bg-surface p-6 shadow-2xl sm:p-8 ${
         isUserCountryMatch
-          ? "border-gold/60 shadow-gold/20 animate-pulse-gold"
+          ? "border-gold/70 shadow-gold/25 ring-1 ring-gold/20"
           : "border-surface-border shadow-gold/5"
       }`}
     >
-      <div className="bg-[radial-gradient(circle_at_top_right,_rgba(212,175,55,0.15),_transparent_40%)] absolute inset-0" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(212,175,55,0.20),_transparent_42%)]" />
+      {isUserCountryMatch && (
+        <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-gold/20 blur-3xl" />
+      )}
       <div className="relative">
-        {isUserCountryMatch && (
-          <span className="mb-3 inline-block rounded-full bg-gold/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-gold">
-            🏟️ YOUR COUNTRY
-          </span>
-        )}
+        <span
+          className={`mb-3 inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+            isUserCountryMatch
+              ? "bg-gold text-black shadow-lg shadow-gold/20"
+              : "border border-surface-border bg-background/80 text-gray-300"
+          }`}
+        >
+          {isUserCountryMatch ? "🏟️ Your Country Match" : "Next Match"}
+        </span>
         <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-gray-400">
-          Next Match
+          {formatStage(match.stage)}
         </p>
         <h2 className="text-2xl font-bold sm:text-4xl">
           {match.home_team} <span className="text-gold">vs</span> {match.away_team}
         </h2>
 
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-gray-400">
-          {match.stage && (
-            <span className="rounded-full border border-surface-border bg-background/80 px-3 py-1">
-              {match.stage}
-            </span>
-          )}
-          {match.venue && (
-            <span className="rounded-full border border-surface-border bg-background/80 px-3 py-1">
-              📍 {match.venue}
-            </span>
-          )}
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-gray-400">
+          <span className="rounded-full border border-surface-border bg-background/80 px-3 py-1">
+            📍 {venue}
+          </span>
         </div>
 
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -71,7 +87,7 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
             <MatchCountdown kickoffAt={match.kickoff_at} />
           </div>
           <Link
-            href={`/predictions`}
+            href="/predictions"
             className="inline-flex items-center justify-center rounded-full bg-gold px-6 py-3 text-sm font-bold text-black transition hover:bg-gold-light"
           >
             🎯 Predict

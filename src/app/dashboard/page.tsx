@@ -6,6 +6,7 @@ import CountryHero from "@/components/dashboard/CountryHero";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import PerformanceCard from "@/components/dashboard/PerformanceCard";
 import NewsFeed from "@/components/dashboard/NewsFeed";
+import { countryCodesMatch } from "@/lib/domain/countries";
 
 export const dynamic = "force-dynamic";
 
@@ -116,8 +117,8 @@ export default async function DashboardPage() {
   const countryMatch = userCountryCode
     ? matches.find(
         (match) =>
-          match.home_country_code === userCountryCode ||
-          match.away_country_code === userCountryCode,
+          countryCodesMatch(match.home_country_code, userCountryCode) ||
+          countryCodesMatch(match.away_country_code, userCountryCode),
       )
     : null;
   const heroMatch = countryMatch ?? matches[0] ?? null;
