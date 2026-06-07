@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { markReportReviewed, saveMatch } from "./actions";
+import { markReportReviewed, saveMatch, scoreMatch } from "./actions";
 import MatchForm from "./MatchForm";
 
-type SearchParams = Promise<{ error?: string; saved?: string; report_saved?: string; edit?: string }>;
+type SearchParams = Promise<{ error?: string; saved?: string; report_saved?: string; scored?: string; already_scored?: string; edit?: string }>;
 
 export type CompetitionRow = { id: string; name: string; slug: string };
 export type StadiumRow = { id: string; name: string; city: string };
@@ -25,6 +25,18 @@ export type MatchRow = {
   match_number: number | null;
   stage: string | null;
   stadiums?: { name: string; city: string } | Array<{ name: string; city: string }> | null;
+};
+
+type MatchScoringSummary = {
+  predictions: number;
+  scoredPredictions: number;
+  pointsApplied: number;
+};
+
+type PredictionScoringRow = {
+  match_id: string | null;
+  points_awarded: number | null;
+  result_points_applied: boolean | null;
 };
 
 type ReportRow = {
@@ -56,6 +68,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_kickoff_time: "Enter a valid kickoff time before saving.",
   missing_competition: "Choose a competition before saving.",
   invalid_report: "Choose a valid report update before saving.",
+  match_not_scoreable: "Only finished matches with final scores can be scored.",
+  scoring_failed: "Could not score this match. Please try again.",
 };
 
 const friendlyError = (error: string) => ERROR_MESSAGES[error] ?? "Could not save changes. Please check the form and try again.";
@@ -84,6 +98,27 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
   const competitionRows = (competitions ?? []) as CompetitionRow[];
   const stadiumRows = (stadiums ?? []) as StadiumRow[];
   const matchRows = (matches ?? []) as unknown as MatchRow[];
+  const matchIds = matchRows.map((match) => match.id);
+  const { data: predictionScoringRows } = matchIds.length > 0
+    ? await supabase
+        .from("predictions")
+        .select("match_id, points_awarded, result_points_applied")
+        .in("match_id", matchIds)
+    : { data: [] };
+  const scoringSummaries = ((predictionScoringRows ?? []) as PredictionScoringRow[]).reduce<Record<string, MatchScoringSummary>>((summaries, prediction) => {
+    if (!prediction.match_id) return summaries;
+
+    const summary = summaries[prediction.match_id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
+    summary.predictions += 1;
+
+    if (prediction.result_points_applied) {
+      summary.scoredPredictions += 1;
+      summary.pointsApplied += prediction.points_awarded ?? 0;
+    }
+
+    summaries[prediction.match_id] = summary;
+    return summaries;
+  }, {});
   const reportRows = (reports ?? []) as unknown as ReportRow[];
   const editingMatch = matchRows.find((match) => match.id === params.edit) ?? null;
   const defaultCompetitionId = editingMatch?.competition_id ?? competitionRows[0]?.id ?? "";
@@ -106,6 +141,8 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
 
         {params.saved && <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">Match saved.</div>}
         {params.report_saved && <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">Report updated.</div>}
+        {params.scored && <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">Match scored successfully.</div>}
+        {params.already_scored && <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">This match has already been scored.</div>}
         {params.error && <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">{friendlyError(params.error)}</div>}
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
@@ -122,20 +159,39 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">Upcoming and active matches</h2>
           <div className="mt-6 space-y-3">
-            {matchRows.map((match) => (
-              <article key={match.id} className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500">{formatKickoff(match.kickoff_at)} · {match.status ?? "scheduled"}</p>
-                  <h3 className="mt-1 text-lg font-bold text-gray-900">{match.home_team_name ?? "Team TBA"} vs {match.away_team_name ?? "Team TBA"}</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Score: {match.home_score ?? "—"} - {match.away_score ?? "—"} · Stadium: {firstRelation(match.stadiums)?.name ?? match.venue ?? "Unassigned"}
-                  </p>
-                </div>
-                <Link href={`/admin/matches?edit=${match.id}`} className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold">
-                  Edit
-                </Link>
-              </article>
-            ))}
+            {matchRows.map((match) => {
+              const scoringSummary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
+              const isScored = scoringSummary.predictions > 0 && scoringSummary.predictions === scoringSummary.scoredPredictions;
+              const isScoreable = match.status === "finished" && match.home_score !== null && match.away_score !== null;
+
+              return (
+                <article key={match.id} className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-gray-500">{formatKickoff(match.kickoff_at)} · {match.status ?? "scheduled"}</p>
+                    <h3 className="mt-1 text-lg font-bold text-gray-900">{match.home_team_name ?? "Team TBA"} vs {match.away_team_name ?? "Team TBA"}</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Score: {match.home_score ?? "—"} - {match.away_score ?? "—"} · Stadium: {firstRelation(match.stadiums)?.name ?? match.venue ?? "Unassigned"}
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-gray-700">
+                      {isScored ? "Scored" : "Not scored"} · Predictions: {scoringSummary.predictions} · Points applied: {scoringSummary.pointsApplied} total
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    {isScoreable && (
+                      <form action={scoreMatch}>
+                        <input type="hidden" name="match_id" value={match.id} />
+                        <button type="submit" className="w-fit rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700">
+                          Score match
+                        </button>
+                      </form>
+                    )}
+                    <Link href={`/admin/matches?edit=${match.id}`} className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold">
+                      Edit
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
             {matchRows.length === 0 && <p className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">No matches found.</p>}
           </div>
         </section>
