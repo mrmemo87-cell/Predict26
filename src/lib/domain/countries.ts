@@ -31,8 +31,13 @@ export function getCountryFlag(code: string | null | undefined): string | null {
   }
 
   const normalized = code.trim().toUpperCase();
-  // Only works for 2-letter ISO codes
+  // Only works for 2-letter ISO codes with A-Z characters
   if (normalized.length !== 2) {
+    return null;
+  }
+
+  // Validate both characters are A-Z
+  if (!/^[A-Z]{2}$/.test(normalized)) {
     return null;
   }
 
