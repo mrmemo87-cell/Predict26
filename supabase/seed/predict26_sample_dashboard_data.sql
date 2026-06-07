@@ -40,44 +40,6 @@ begin
   end if;
 end $$;
 
-create temp table if not exists pg_temp.predict26_seed_matches (
-  match_number integer,
-  home_alpha2 text,
-  home_alpha3 text,
-  home_team text,
-  away_alpha2 text,
-  away_alpha3 text,
-  away_team text,
-  kickoff_at timestamptz,
-  stage text,
-  group_name text,
-  venue text,
-  city text
-) on commit drop;
-
-truncate pg_temp.predict26_seed_matches;
-
-insert into pg_temp.predict26_seed_matches (
-  match_number,
-  home_alpha2,
-  home_alpha3,
-  home_team,
-  away_alpha2,
-  away_alpha3,
-  away_team,
-  kickoff_at,
-  stage,
-  group_name,
-  venue,
-  city
-)
-values
-  (2601, 'KG', 'KGZ', 'Kyrgyzstan', 'US', 'USA', 'United States', '2026-06-14 22:00:00+00', 'group', 'A', 'SoFi Stadium', 'Los Angeles'),
-  (2602, 'KZ', 'KAZ', 'Kazakhstan', 'CA', 'CAN', 'Canada', '2026-06-16 01:00:00+00', 'group', 'B', 'BC Place', 'Vancouver'),
-  (2603, 'UZ', 'UZB', 'Uzbekistan', 'MX', 'MEX', 'Mexico', '2026-06-18 19:00:00+00', 'group', 'C', 'Estadio Akron', 'Guadalajara'),
-  (2604, 'RU', 'RUS', 'Russia', 'BR', 'BRA', 'Brazil', '2026-06-21 00:00:00+00', 'group', 'D', 'AT&T Stadium', 'Dallas'),
-  (2605, 'KG', 'KGZ', 'Kyrgyzstan', 'JP', 'JPN', 'Japan', '2026-06-24 20:00:00+00', 'round_of_32', null, 'MetLife Stadium', 'New York/New Jersey');
-
 do $$
 declare
   has_competition_id boolean;
@@ -162,7 +124,31 @@ begin
     where slug = 'world-cup-2026';
   end if;
 
-  for match_record in select * from pg_temp.predict26_seed_matches order by match_number loop
+  for match_record in
+    select *
+    from (
+      values
+        (2601, 'KG', 'KGZ', 'Kyrgyzstan', 'US', 'USA', 'United States', '2026-06-14 22:00:00+00'::timestamptz, 'group', 'A', 'SoFi Stadium', 'Los Angeles'),
+        (2602, 'KZ', 'KAZ', 'Kazakhstan', 'CA', 'CAN', 'Canada', '2026-06-16 01:00:00+00'::timestamptz, 'group', 'B', 'BC Place', 'Vancouver'),
+        (2603, 'UZ', 'UZB', 'Uzbekistan', 'MX', 'MEX', 'Mexico', '2026-06-18 19:00:00+00'::timestamptz, 'group', 'C', 'Estadio Akron', 'Guadalajara'),
+        (2604, 'RU', 'RUS', 'Russia', 'BR', 'BRA', 'Brazil', '2026-06-21 00:00:00+00'::timestamptz, 'group', 'D', 'AT&T Stadium', 'Dallas'),
+        (2605, 'KG', 'KGZ', 'Kyrgyzstan', 'JP', 'JPN', 'Japan', '2026-06-24 20:00:00+00'::timestamptz, 'round_of_32', null, 'MetLife Stadium', 'New York/New Jersey')
+    ) as seed_matches(
+      match_number,
+      home_alpha2,
+      home_alpha3,
+      home_team,
+      away_alpha2,
+      away_alpha3,
+      away_team,
+      kickoff_at,
+      stage,
+      group_name,
+      venue,
+      city
+    )
+    order by match_number
+  loop
     if to_regclass('public.countries') is not null then
       select code into resolved_home_code
       from public.countries
