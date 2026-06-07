@@ -1,8 +1,6 @@
 -- 05_seed_sample_matches.sql
--- Predict26: sample/dev-safe matches.
--- Supports old + new matches columns:
--- match_number, home_team_code, away_team_code, home_team_name, away_team_name,
--- home_country_code, away_country_code.
+-- Predict26: clean sample/dev-safe matches.
+-- Supports old + new matches columns.
 
 DO $$
 DECLARE
