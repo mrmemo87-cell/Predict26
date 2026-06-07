@@ -2,12 +2,13 @@ import Link from "next/link";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { markReportReviewed, saveMatch } from "./actions";
+import MatchForm from "./MatchForm";
 
 type SearchParams = Promise<{ error?: string; saved?: string; report_saved?: string; edit?: string }>;
 
-type CompetitionRow = { id: string; name: string; slug: string };
-type StadiumRow = { id: string; name: string; city: string };
-type MatchRow = {
+export type CompetitionRow = { id: string; name: string; slug: string };
+export type StadiumRow = { id: string; name: string; city: string };
+export type MatchRow = {
   id: string;
   competition_id: string | null;
   home_team_name: string | null;
@@ -35,15 +36,6 @@ type ReportRow = {
   matches: { home_team_name: string | null; away_team_name: string | null; kickoff_at: string | null } | Array<{ home_team_name: string | null; away_team_name: string | null; kickoff_at: string | null }> | null;
 };
 
-const STATUS_OPTIONS = ["scheduled", "live", "in_progress", "completed", "postponed", "cancelled"];
-
-const formatDateTimeLocal = (value: string | null | undefined) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 16);
-};
-
 const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -53,6 +45,20 @@ const formatKickoff = (value: string | null) => {
   if (!value) return "Time TBA";
   return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 };
+
+const ERROR_MESSAGES: Record<string, string> = {
+  score_not_allowed_for_status: "Scores can only be saved for live or finished matches.",
+  invalid_non_negative_number: "Scores and match numbers must be non-negative whole numbers.",
+  incomplete_score: "Enter both scores before saving the match.",
+  score_required_for_status: "Live or finished matches need both scores before saving.",
+  invalid_match_status: "Choose a valid match status before saving.",
+  missing_match_fields: "Enter both teams and a kickoff time before saving.",
+  invalid_kickoff_time: "Enter a valid kickoff time before saving.",
+  missing_competition: "Choose a competition before saving.",
+  invalid_report: "Choose a valid report update before saving.",
+};
+
+const friendlyError = (error: string) => ERROR_MESSAGES[error] ?? "Could not save changes. Please check the form and try again.";
 
 export default async function AdminMatchManagerPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
@@ -100,101 +106,17 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
 
         {params.saved && <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">Match saved.</div>}
         {params.report_saved && <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">Report updated.</div>}
-        {params.error && <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">{params.error}</div>}
+        {params.error && <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">{friendlyError(params.error)}</div>}
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">{editingMatch ? "Edit match" : "Add match"}</h2>
-          <form action={saveMatch} className="mt-6 grid gap-4 md:grid-cols-2">
-            <input type="hidden" name="match_id" value={editingMatch?.id ?? ""} />
-
-            <label className="text-sm font-semibold text-gray-700">
-              Competition
-              <select name="competition_id" defaultValue={defaultCompetitionId} className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900">
-                {competitionRows.map((competition) => (
-                  <option key={competition.id} value={competition.id}>{competition.name}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Stadium
-              <select name="stadium_id" defaultValue={editingMatch?.stadium_id ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900">
-                <option value="">No stadium assigned</option>
-                {stadiumRows.map((stadium) => (
-                  <option key={stadium.id} value={stadium.id}>{stadium.name} · {stadium.city}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Home team
-              <input name="home_team_name" required defaultValue={editingMatch?.home_team_name ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Away team
-              <input name="away_team_name" required defaultValue={editingMatch?.away_team_name ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Home code
-              <input name="home_team_code" defaultValue={editingMatch?.home_team_code ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Away code
-              <input name="away_team_code" defaultValue={editingMatch?.away_team_code ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Kickoff time
-              <input name="kickoff_at" type="datetime-local" required defaultValue={formatDateTimeLocal(editingMatch?.kickoff_at)} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Status
-              <select name="status" defaultValue={editingMatch?.status ?? "scheduled"} className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-gray-900">
-                {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Home score
-              <input name="home_score" type="number" min="0" defaultValue={editingMatch?.home_score ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Away score
-              <input name="away_score" type="number" min="0" defaultValue={editingMatch?.away_score ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Venue override
-              <input name="venue" defaultValue={editingMatch?.venue ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              City override
-              <input name="city" defaultValue={editingMatch?.city ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Match number
-              <input name="match_number" type="number" min="1" defaultValue={editingMatch?.match_number ?? ""} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <label className="text-sm font-semibold text-gray-700">
-              Stage
-              <input name="stage" defaultValue={editingMatch?.stage ?? "group"} className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-900" />
-            </label>
-
-            <div className="flex items-end gap-3 md:col-span-2">
-              <button type="submit" className="rounded-full bg-gold px-6 py-3 text-sm font-bold text-black shadow-lg shadow-gold/20 transition hover:-translate-y-0.5">
-                Save match
-              </button>
-              {editingMatch && <Link href="/admin/matches" className="rounded-full border border-gray-200 px-6 py-3 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold">Cancel edit</Link>}
-            </div>
-          </form>
+          <MatchForm
+            competitions={competitionRows}
+            stadiums={stadiumRows}
+            editingMatch={editingMatch}
+            defaultCompetitionId={defaultCompetitionId}
+            saveAction={saveMatch}
+          />
         </section>
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">

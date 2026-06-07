@@ -50,7 +50,7 @@ export default async function CountryOnboardingPage({
 
         {params.error && (
           <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            Could not save your country. Please choose one of the available countries and try again.
+            Could not save your country. Please try again.
           </div>
         )}
 
