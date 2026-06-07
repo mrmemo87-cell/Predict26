@@ -66,67 +66,24 @@ export async function GET(request: Request) {
     }
   );
 
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
-    code
-  );
+  const { data: sessionData, error: exchangeError } =
+    await supabase.auth.exchangeCodeForSession(code);
   console.info("callback session exchange succeeded", !exchangeError);
 
-  if (exchangeError) {
-    console.error("Google OAuth code exchange failed", exchangeError.message);
-    return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
-  }
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
+  if (exchangeError || !sessionData.user) {
     console.error(
-      "Google OAuth callback could not load user",
-      userError?.message ?? "missing user"
+      "Google OAuth code exchange failed",
+      exchangeError?.message ?? "missing user"
     );
     return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
   }
 
-  const { data: existingProfile, error: lookupError } = await supabase
+  const profilePayload = getProfilePayload(sessionData.user);
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
+    .upsert(profilePayload, { onConflict: "id" })
     .select("country_code")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  let profile = existingProfile;
-  let profileError = lookupError;
-
-  if (!profileError) {
-    const profilePayload = getProfilePayload(user);
-
-    if (existingProfile) {
-      const { data: updatedProfile, error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          id: profilePayload.id,
-          display_name: profilePayload.display_name,
-          avatar_url: profilePayload.avatar_url,
-          username: profilePayload.username,
-        })
-        .eq("id", user.id)
-        .select("country_code")
-        .single();
-
-      profile = updatedProfile;
-      profileError = updateError;
-    } else {
-      const { data: insertedProfile, error: insertError } = await supabase
-        .from("profiles")
-        .insert(profilePayload)
-        .select("country_code")
-        .single();
-
-      profile = insertedProfile;
-      profileError = insertError;
-    }
-  }
+    .single();
 
   console.info("callback profile upsert succeeded", !profileError);
 
