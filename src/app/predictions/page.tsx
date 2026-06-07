@@ -15,11 +15,17 @@ const pickLabels = {
   away: "Away",
 } as const;
 
-const formatKickoff = (kickoffAt: string) =>
-  new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(kickoffAt));
+const formatKickoff = (kickoffAt: string | null) => {
+  if (!kickoffAt) return "Time TBA";
+  try {
+    return new Intl.DateTimeFormat("en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(kickoffAt));
+  } catch {
+    return "Time TBA";
+  }
+};
 
 export default async function PredictionsPage({
   searchParams,
@@ -88,7 +94,7 @@ export default async function PredictionsPage({
         <div className="space-y-4">
           {matches.map((match) => {
             const selected = selectedByMatch.get(match.id);
-            const locked = new Date(match.kickoff_at) <= now;
+            const locked = match.kickoff_at ? new Date(match.kickoff_at) <= now : false;
 
             const isHighlighted = params.match === match.id;
 

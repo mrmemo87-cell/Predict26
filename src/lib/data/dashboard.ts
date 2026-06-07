@@ -7,7 +7,7 @@ type DashboardData = {
   accuracy: number;
   distanceToTop3: number | null;
   distanceToPrizeZone: number | null;
-  upcomingMatches: Array<{ id: string; home_team: string; away_team: string; kickoff_at: string }>;
+  upcomingMatches: Array<{ id: string; home_team: string; away_team: string; kickoff_at: string | null }>;
   recentPredictions: Array<{
     id: string;
     choice: string;
@@ -37,19 +37,24 @@ export const getDashboardData = async (): Promise<DashboardData | null> => {
       fetchUpcomingPredictionMatches(supabase, 5),
       supabase
         .from("predictions")
-        .select("id, choice, points_awarded, matches(home_team, away_team)")
+        .select("id, choice, points_awarded, matches(home_team_name, away_team_name)")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(5),
     ]);
 
   const normalizedPredictions =
-    recentPredictions?.map((prediction) => ({
-      id: prediction.id,
-      choice: prediction.choice,
-      points_awarded: prediction.points_awarded,
-      matches: Array.isArray(prediction.matches) ? (prediction.matches[0] ?? null) : prediction.matches,
-    })) ?? [];
+    recentPredictions?.map((prediction) => {
+      const matchData = Array.isArray(prediction.matches) ? (prediction.matches[0] ?? null) : prediction.matches;
+      return {
+        id: prediction.id,
+        choice: prediction.choice,
+        points_awarded: prediction.points_awarded,
+        matches: matchData
+          ? { home_team: matchData.home_team_name || "Team TBA", away_team: matchData.away_team_name || "Team TBA" }
+          : null,
+      };
+    }) ?? [];
 
   return {
     rank: leaderboardRow?.global_rank ?? null,
