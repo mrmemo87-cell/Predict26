@@ -5,18 +5,38 @@ import { redirect } from "next/navigation";
 import { fetchPredictionMatchById, isPredictableMatchStatus } from "@/lib/data/upcomingPredictionMatches";
 import { createClient } from "@/lib/supabase/server";
 
-const PICKS = ["home", "draw", "away"] as const;
-type Pick = (typeof PICKS)[number];
+const MIN_SCORE = 0;
+const MAX_SCORE = 20;
 
-const isPick = (value: FormDataEntryValue | null): value is Pick =>
-  typeof value === "string" && PICKS.includes(value as Pick);
+const redirectWithError = (error: "invalid_prediction" | "locked" | "save_failed", matchId?: string) => {
+  const params = new URLSearchParams({ error });
+  if (matchId) params.set("match", matchId);
+  redirect(`/predictions?${params.toString()}`);
+};
+
+const parseScore = (value: FormDataEntryValue | null) => {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  if (!/^\d+$/.test(value.trim())) return null;
+
+  const score = Number(value);
+  if (!Number.isInteger(score) || score < MIN_SCORE || score > MAX_SCORE) return null;
+
+  return score;
+};
 
 export async function savePrediction(formData: FormData) {
   const matchId = formData.get("match_id")?.toString();
-  const pick = formData.get("pick");
+  const homeScore = parseScore(formData.get("home_score"));
+  const awayScore = parseScore(formData.get("away_score"));
 
-  if (!matchId || !isPick(pick)) {
-    redirect("/predictions?error=invalid_prediction");
+  if (!matchId) {
+    redirectWithError("invalid_prediction");
+  }
+
+  const validMatchId = matchId as string;
+
+  if (homeScore === null || awayScore === null) {
+    redirectWithError("invalid_prediction", validMatchId);
   }
 
   const supabase = await createClient();
@@ -38,26 +58,28 @@ export async function savePrediction(formData: FormData) {
     redirect("/onboarding/country");
   }
 
-  const match = await fetchPredictionMatchById(supabase, matchId);
+  const match = await fetchPredictionMatchById(supabase, validMatchId);
 
-  if (!match || !isPredictableMatchStatus(match.status) || (match.kickoff_at && new Date(match.kickoff_at) <= new Date())) {
-    redirect("/predictions?error=locked");
+  if (!match || !isPredictableMatchStatus(match.status) || !match.kickoff_at || new Date(match.kickoff_at) <= new Date()) {
+    redirectWithError("locked", validMatchId);
   }
+
+  const unlockedMatch = match as NonNullable<typeof match>;
 
   const { error } = await supabase.from("predictions").upsert(
     {
       user_id: user.id,
-      match_id: match.id,
-      choice: pick,
-      submitted_at: new Date().toISOString(),
+      match_id: unlockedMatch.id,
+      home_score: homeScore,
+      away_score: awayScore,
     },
     { onConflict: "user_id,match_id" },
   );
 
   if (error) {
-    redirect("/predictions?error=save_failed");
+    redirectWithError("save_failed", validMatchId);
   }
 
   revalidatePath("/predictions");
-  redirect("/predictions?saved=1");
+  redirect(`/predictions?saved=1&match=${unlockedMatch.id}`);
 }

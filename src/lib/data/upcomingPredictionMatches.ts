@@ -75,7 +75,7 @@ function isDevMatch(match: UpcomingPredictionMatch): boolean {
 
 export function isPredictableMatchStatus(status: string | null | undefined): boolean {
   const s = (status ?? "").toLowerCase();
-  return s === "scheduled" || s === "upcoming";
+  return s === "scheduled";
 }
 
 async function getCompetitionId(supabase: SupabaseServerClient): Promise<string | null> {
