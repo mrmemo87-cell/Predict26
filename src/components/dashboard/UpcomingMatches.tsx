@@ -147,7 +147,7 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
                     {formatStatus(match.status)}
                   </span>
                   <Link
-                    href="/predictions"
+                    href={`/predictions?match=${match.id}`}
                     className="rounded-full border border-gold/50 px-4 py-2 text-xs font-bold text-gold transition hover:bg-gold hover:text-black"
                   >
                     Predict

@@ -7,20 +7,9 @@ import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import PerformanceCard from "@/components/dashboard/PerformanceCard";
 import NewsFeed from "@/components/dashboard/NewsFeed";
 import { countryCodesMatch } from "@/lib/domain/countries";
+import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 
 export const dynamic = "force-dynamic";
-
-type MatchRow = {
-  id: string;
-  home_team: string;
-  away_team: string;
-  kickoff_at: string;
-  stage: string | null;
-  status: string;
-  venue: string | null;
-  home_country_code: string | null;
-  away_country_code: string | null;
-};
 
 type NewsRow = {
   id: string;
@@ -38,41 +27,6 @@ type LeaderboardRow = {
   distance_to_prize_zone: number | null;
 };
 
-const matchSelectAttempts = [
-  "id, home_team, away_team, kickoff_at, stage, status, venue, home_country_code, away_country_code",
-  "id, home_team, away_team, kickoff_at, stage, status, venue",
-  "id, home_team:home_team_name, away_team:away_team_name, kickoff_at, stage, status, venue, home_country_code:home_team_code, away_country_code:away_team_code",
-] as const;
-
-async function fetchUpcomingMatches(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<MatchRow[]> {
-  for (const selectColumns of matchSelectAttempts) {
-    const { data, error } = await supabase
-      .from("matches")
-      .select(selectColumns)
-      .eq("status", "scheduled")
-      .order("kickoff_at", { ascending: true })
-      .limit(20);
-
-    if (!error) {
-      return ((data as Partial<MatchRow>[] | null) ?? []).map((match) => ({
-        id: match.id ?? "",
-        home_team: match.home_team ?? "TBD",
-        away_team: match.away_team ?? "TBD",
-        kickoff_at: match.kickoff_at ?? new Date().toISOString(),
-        stage: match.stage ?? null,
-        status: match.status ?? "scheduled",
-        venue: match.venue ?? null,
-        home_country_code: match.home_country_code ?? null,
-        away_country_code: match.away_country_code ?? null,
-      }));
-    }
-  }
-
-  return [];
-}
-
 export default async function DashboardPage() {
   const supabase = await createClient();
 
@@ -84,16 +38,13 @@ export default async function DashboardPage() {
     redirect("/login?redirectTo=/dashboard");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name, username, avatar_url, country_code, points, is_founder, referral_code")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const userCountryCode = profile?.country_code ?? "";
-
-  const [matches, newsRes, predictionsRes, leaderboardRes] = await Promise.all([
-    fetchUpcomingMatches(supabase),
+  const [profileRes, matches, newsRes, predictionsRes, leaderboardRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("display_name, username, avatar_url, country_code, points, is_founder, referral_code")
+      .eq("id", user.id)
+      .maybeSingle(),
+    fetchUpcomingPredictionMatches(supabase, 20),
     supabase
       .from("world_cup_news")
       .select("id, title, created_at")
@@ -110,9 +61,11 @@ export default async function DashboardPage() {
       .maybeSingle(),
   ]);
 
+  const profile = profileRes.data;
+  const userCountryCode = profile?.country_code ?? "";
   const news = (newsRes.error ? [] : (newsRes.data as NewsRow[] | null)) ?? [];
-  const predictions = (predictionsRes.data as PredictionRow[] | null) ?? [];
-  const leaderboard = (leaderboardRes.data as LeaderboardRow | null) ?? null;
+  const predictions = (predictionsRes.error ? [] : (predictionsRes.data as PredictionRow[] | null)) ?? [];
+  const leaderboard = (leaderboardRes.error ? null : (leaderboardRes.data as LeaderboardRow | null)) ?? null;
 
   const countryMatch = userCountryCode
     ? matches.find(
