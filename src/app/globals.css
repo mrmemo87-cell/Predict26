@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080808;
+  --foreground: #f6f3ea;
+  --surface: #111111;
+  --surface-soft: rgba(255, 255, 255, 0.03);
+  --border: rgba(212, 175, 55, 0.24);
+  --gold: #d4af37;
+  --gold-soft: #f0d98b;
+  --muted: #b7ad91;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  font-family: Inter, "SF Pro Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(212, 175, 55, 0.12), transparent 45%),
+    radial-gradient(circle at 90% 10%, rgba(212, 175, 55, 0.08), transparent 35%),
+    var(--background);
+}
+
+.glass-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--border);
+}
