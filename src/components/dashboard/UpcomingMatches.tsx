@@ -70,7 +70,7 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
                   <span className="font-semibold text-white">{match.away_team}</span>
                   {isUserCountry && (
                     <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold">
-                      Your Country
+                      YOUR COUNTRY
                     </span>
                   )}
                 </div>
