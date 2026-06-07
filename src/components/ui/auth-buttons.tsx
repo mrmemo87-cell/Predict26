@@ -1,4 +1,5 @@
-import { signInWithGoogle, signOut } from "@/app/auth/actions";
+import { signOut } from "@/app/auth/actions";
+import { GoogleAuthButton } from "@/components/ui/google-auth-button";
 
 type AuthButtonsProps = {
   isAuthenticated: boolean;
@@ -19,18 +20,10 @@ export function AuthButtons({ isAuthenticated }: AuthButtonsProps) {
   }
 
   return (
-    <form
-      action={async () => {
-        "use server";
-        await signInWithGoogle();
-      }}
-    >
-      <button
-        type="submit"
-        className="rounded-full bg-[var(--gold)] px-5 py-2 text-sm font-semibold text-black transition hover:bg-[var(--gold-soft)]"
-      >
-        Continue with Google
-      </button>
-    </form>
+    <GoogleAuthButton
+      className="rounded-full bg-[var(--gold)] px-5 py-2 text-sm font-semibold text-black transition hover:bg-[var(--gold-soft)] disabled:cursor-not-allowed disabled:opacity-70"
+      label="Continue with Google"
+      showIcon={false}
+    />
   );
 }

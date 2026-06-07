@@ -5,6 +5,7 @@ type ProfilePayload = {
   display_name: string | null;
   avatar_url: string | null;
   username: string;
+  referral_code: string;
 };
 
 const USERNAME_MAX_LENGTH = 24;
@@ -44,6 +45,9 @@ function getSafeUsername(candidate: string | null, userId: string) {
   return `${normalized.slice(0, baseLength)}${suffix}`;
 }
 
+const getReferralCode = (userId: string) =>
+  userId.replace(/-/g, "").slice(0, 8).toUpperCase();
+
 export const getProfilePayload = (user: User): ProfilePayload => {
   const displayName =
     getStringMetadataValue(user.user_metadata, [
@@ -71,5 +75,6 @@ export const getProfilePayload = (user: User): ProfilePayload => {
     display_name: displayName,
     avatar_url: avatarUrl,
     username,
+    referral_code: getReferralCode(user.id),
   };
 };
