@@ -1,20 +1,15 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getBaseAppUrl } from "@/lib/env";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
-export const signInWithGoogle = async () => {
-  const supabase = await createSupabaseServerClient();
-  const host = (await headers()).get("host");
-  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
-  const baseUrl = host ? `${protocol}://${host}` : getBaseAppUrl();
+export async function signInWithGoogle(redirectTo?: string) {
+  const supabase = await createClient();
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${baseUrl}/auth/callback`,
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback${redirectTo ? `?next=${redirectTo}` : ""}`,
       queryParams: {
         access_type: "offline",
         prompt: "consent",
@@ -22,15 +17,17 @@ export const signInWithGoogle = async () => {
     },
   });
 
-  if (error || !data.url) {
-    redirect("/?authError=oauth_failed");
+  if (error) {
+    throw new Error(error.message);
   }
 
-  redirect(data.url);
-};
+  if (data.url) {
+    redirect(data.url);
+  }
+}
 
-export const signOut = async () => {
-  const supabase = await createSupabaseServerClient();
+export async function signOut() {
+  const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");
-};
+}

@@ -1,70 +1,93 @@
+import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { getDashboardData } from "@/lib/data/dashboard";
-
-const renderMetric = (label: string, value: string | number) => (
-  <article className="glass-panel rounded-2xl p-5">
-    <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{label}</p>
-    <p className="mt-2 text-2xl font-semibold text-[var(--gold)]">{value}</p>
-  </article>
-);
+import { signOut } from "@/app/auth/actions";
+import Image from "next/image";
 
 export default async function DashboardPage() {
-  const dashboardData = await getDashboardData();
+  const supabase = await createClient();
 
-  if (!dashboardData) {
-    redirect("/");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-5 py-8 sm:px-8 lg:py-10">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
-      <p className="text-sm text-[var(--muted)]">Track your rank, points, accuracy, and prize zone progress.</p>
+    <main className="min-h-screen px-4 py-12">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-12">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⚽</span>
+            <span className="font-bold gold-text-gradient text-xl">Predict26</span>
+          </div>
+          <form action={signOut}>
+            <button
+              type="submit"
+              className="text-sm text-gray-400 hover:text-white border border-surface-border px-4 py-2 rounded-full transition-colors"
+            >
+              Sign Out
+            </button>
+          </form>
+        </div>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {renderMetric("Current Rank", dashboardData.rank ?? "—")}
-        {renderMetric("Total Points", dashboardData.points)}
-        {renderMetric("Accuracy", `${dashboardData.accuracy}%`)}
-        {renderMetric("Distance to Top 3", dashboardData.distanceToTop3 ?? "—")}
-        {renderMetric("Distance to Prize Zone", dashboardData.distanceToPrizeZone ?? "—")}
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="glass-panel rounded-2xl p-5">
-          <h2 className="text-lg font-semibold">Upcoming Matches</h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            {dashboardData.upcomingMatches.length === 0 ? (
-              <li className="text-[var(--muted)]">No scheduled matches yet.</li>
-            ) : (
-              dashboardData.upcomingMatches.map((match) => (
-                <li key={match.id} className="rounded-xl border border-[var(--border)] px-3 py-2">
-                  {match.home_team} vs {match.away_team}
-                  <span className="ml-2 text-xs text-[var(--muted)]">
-                    {new Date(match.kickoff_at).toLocaleString()}
-                  </span>
-                </li>
-              ))
+        {/* Welcome */}
+        <div className="bg-surface border border-surface-border rounded-2xl p-8 mb-8">
+          <div className="flex items-center gap-4 mb-6">
+            {profile?.avatar_url && (
+              <Image
+                src={profile.avatar_url}
+                alt="Avatar"
+                width={64}
+                height={64}
+                className="w-16 h-16 rounded-full border-2 border-gold/50"
+              />
             )}
-          </ul>
-        </article>
+            <div>
+              <h1 className="text-2xl font-bold">
+                Welcome, {profile?.display_name || profile?.username || "Player"}!
+              </h1>
+              <p className="text-gray-400 text-sm">
+                {profile?.is_founder && (
+                  <span className="text-gold mr-2">🏅 Founder</span>
+                )}
+                {profile?.country_code && profile.country_code !== "XX" && (
+                  <span>Representing {profile.country_code}</span>
+                )}
+              </p>
+            </div>
+          </div>
 
-        <article className="glass-panel rounded-2xl p-5">
-          <h2 className="text-lg font-semibold">Recent Predictions</h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            {dashboardData.recentPredictions.length === 0 ? (
-              <li className="text-[var(--muted)]">No predictions submitted yet.</li>
-            ) : (
-              dashboardData.recentPredictions.map((prediction) => (
-                <li key={prediction.id} className="rounded-xl border border-[var(--border)] px-3 py-2">
-                  {(prediction.matches?.home_team ?? "TBD") + " vs " + (prediction.matches?.away_team ?? "TBD")}
-                  <span className="ml-2 text-xs text-[var(--muted)]">
-                    {prediction.choice.toUpperCase()} · {prediction.points_awarded} pts
-                  </span>
-                </li>
-              ))
-            )}
-          </ul>
-        </article>
-      </section>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-background rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold gold-text-gradient">{profile?.points || 0}</p>
+              <p className="text-xs text-gray-400 mt-1">Points</p>
+            </div>
+            <div className="bg-background rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">{profile?.country_code || "—"}</p>
+              <p className="text-xs text-gray-400 mt-1">Country</p>
+            </div>
+            <div className="bg-background rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">{profile?.referral_code || "—"}</p>
+              <p className="text-xs text-gray-400 mt-1">Referral Code</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Coming soon */}
+        <div className="text-center text-gray-500 py-12">
+          <p className="text-lg">🏟️ Match predictions coming soon...</p>
+          <p className="text-sm mt-2">The World Cup 2026 is approaching. Get ready!</p>
+        </div>
+      </div>
     </main>
   );
 }
