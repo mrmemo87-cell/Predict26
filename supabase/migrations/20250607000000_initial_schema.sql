@@ -12,8 +12,6 @@ create extension if not exists "uuid-ossp" with schema extensions;
 -- PROFILES
 -- =============================================================================
 
-comment on table auth.users is 'Supabase managed auth users table.';
-
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text unique not null,
