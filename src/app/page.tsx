@@ -38,10 +38,10 @@ export default function Home() {
 
           {/* CTA */}
           <a
-            href="#join"
+            href="/login"
             className="inline-flex items-center gap-2 gold-gradient text-black font-bold px-8 py-4 rounded-full text-lg hover:scale-105 transition-transform animate-pulse-gold"
           >
-            🏆 Join the Waitlist
+            🏆 Start Predicting
           </a>
 
           <p className="text-sm text-gray-500 mt-4">
@@ -248,13 +248,13 @@ export default function Home() {
           </p>
 
           <a
-            href="https://t.me/predict26"
+            href="https://t.me/Predict26Official"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-3 gold-gradient text-black font-bold px-10 py-5 rounded-full text-xl hover:scale-105 transition-transform animate-pulse-gold"
           >
             <span>⚽</span>
-            <span>Join Now — It&apos;s Free</span>
+            <span>Join Telegram</span>
           </a>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-gray-500">

@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 type DashboardData = {
   rank: number | null;
@@ -16,7 +16,7 @@ type DashboardData = {
 };
 
 export const getDashboardData = async (): Promise<DashboardData | null> => {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
