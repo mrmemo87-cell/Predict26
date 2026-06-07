@@ -42,7 +42,7 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
       <div className="relative">
         {isUserCountryMatch && (
           <span className="mb-3 inline-block rounded-full bg-gold/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-gold">
-            🏟️ Your Country
+            🏟️ YOUR COUNTRY
           </span>
         )}
         <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-gray-400">
