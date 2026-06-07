@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import { WORLD_CUP_SLUG } from "@/lib/domain/constants";
 import { mockFootballDataProvider } from "./providers/mock";

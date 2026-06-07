@@ -41,13 +41,56 @@ begin
 
     alter table public.matches
       add constraint matches_status_allowed
-      check (status in ('scheduled', 'upcoming', 'live', 'in_progress', 'completed', 'postponed', 'cancelled'));
+      check (status::text in ('scheduled', 'upcoming', 'live', 'in_progress', 'completed', 'postponed', 'cancelled'));
   end if;
 end $$;
 
 alter table public.matches
   add column if not exists home_country_code text,
   add column if not exists away_country_code text;
+
+-- Keep existing score constraints compatible with added in-progress/postponed statuses.
+do $$
+declare
+  constraint_name text;
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'matches'
+      and column_name = 'home_score'
+  ) and exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'matches'
+      and column_name = 'away_score'
+  ) then
+    for constraint_name in
+      select c.conname
+      from pg_constraint c
+      join pg_class t on t.oid = c.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+      where n.nspname = 'public'
+        and t.relname = 'matches'
+        and c.contype = 'c'
+        and (
+          pg_get_constraintdef(c.oid) ilike '%home_score%'
+          or pg_get_constraintdef(c.oid) ilike '%away_score%'
+        )
+    loop
+      execute format('alter table public.matches drop constraint if exists %I', constraint_name);
+    end loop;
+
+    alter table public.matches
+      add constraint matches_score_status_check
+      check (
+        (status::text in ('scheduled', 'cancelled', 'postponed') and home_score is null and away_score is null)
+        or (status::text in ('live', 'in_progress', 'completed') and home_score is not null and away_score is not null)
+      );
+  end if;
+end $$;
 
 create table if not exists public.stadiums (
   id uuid primary key default gen_random_uuid(),

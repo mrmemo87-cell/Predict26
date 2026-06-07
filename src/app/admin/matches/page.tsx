@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-
+import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { markReportReviewed, saveMatch } from "./actions";
 
 type SearchParams = Promise<{ error?: string; saved?: string; report_saved?: string; edit?: string }>;
@@ -38,31 +36,6 @@ type ReportRow = {
 };
 
 const STATUS_OPTIONS = ["scheduled", "live", "in_progress", "completed", "postponed", "cancelled"];
-
-const requireAdminUser = async () => {
-  const allowedEmails = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (allowedEmails.length === 0) {
-    redirect("/dashboard?error=admin_not_configured");
-  }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login?redirectTo=/admin/matches");
-  }
-
-  const email = user.email?.toLowerCase();
-  if (!email || !allowedEmails.includes(email)) {
-    redirect("/dashboard?error=admin_required");
-  }
-};
 
 const formatDateTimeLocal = (value: string | null | undefined) => {
   if (!value) return "";
