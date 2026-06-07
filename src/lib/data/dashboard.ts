@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 type DashboardData = {
   rank: number | null;
@@ -16,7 +16,7 @@ type DashboardData = {
 };
 
 export const getDashboardData = async (): Promise<DashboardData | null> => {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -27,11 +27,7 @@ export const getDashboardData = async (): Promise<DashboardData | null> => {
 
   const [{ data: profile }, { data: leaderboardRow }, { data: upcomingMatches }, { data: recentPredictions }] =
     await Promise.all([
-      supabase
-        .from("profiles")
-        .select("points, accuracy")
-        .eq("id", user.id)
-        .single(),
+      supabase.from("profiles").select("points, accuracy").eq("id", user.id).single(),
       supabase
         .from("leaderboards")
         .select("global_rank, distance_to_top3, distance_to_prize_zone")

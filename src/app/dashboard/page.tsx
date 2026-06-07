@@ -1,7 +1,24 @@
-import { createClient } from "@/lib/supabase/server";
+import Image from "next/image";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
-import Image from "next/image";
+import { createClient } from "@/lib/supabase/server";
+
+type Country = { name: string; flag_emoji: string | null };
+
+type Profile = {
+  display_name: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  country_code: string | null;
+  points: number | null;
+  is_founder: boolean | null;
+  referral_code: string | null;
+  countries: Country | Country[] | null;
+};
+
+const getCountry = (country: Profile["countries"]) =>
+  Array.isArray(country) ? (country[0] ?? null) : country;
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -11,82 +28,85 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/login?redirectTo=/dashboard");
   }
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("*")
+    .select("display_name, username, avatar_url, country_code, points, is_founder, referral_code, countries(name, flag_emoji)")
     .eq("id", user.id)
     .single();
 
+  const typedProfile = profile as Profile | null;
+
+  if (!typedProfile?.country_code) {
+    redirect("/onboarding/country");
+  }
+
+  const country = getCountry(typedProfile.countries);
+  const countryLabel = country ? `${country.flag_emoji ?? "🌍"} ${country.name}` : typedProfile.country_code;
+
   return (
-    <main className="min-h-screen px-4 py-12">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-12">
-          <div className="flex items-center gap-3">
+    <main className="min-h-screen px-4 py-8 sm:py-12">
+      <div className="mx-auto max-w-4xl">
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <Link href="/dashboard" className="flex items-center gap-3">
             <span className="text-2xl">⚽</span>
-            <span className="font-bold gold-text-gradient text-xl">Predict26</span>
-          </div>
+            <span className="text-xl font-bold gold-text-gradient">Predict26</span>
+          </Link>
           <form action={signOut}>
-            <button
-              type="submit"
-              className="text-sm text-gray-400 hover:text-white border border-surface-border px-4 py-2 rounded-full transition-colors"
-            >
+            <button type="submit" className="rounded-full border border-surface-border px-4 py-2 text-sm text-gray-400 transition hover:border-gold/60 hover:text-white">
               Sign Out
             </button>
           </form>
-        </div>
+        </header>
 
-        {/* Welcome */}
-        <div className="bg-surface border border-surface-border rounded-2xl p-8 mb-8">
-          <div className="flex items-center gap-4 mb-6">
-            {profile?.avatar_url && (
-              <Image
-                src={profile.avatar_url}
-                alt="Avatar"
-                width={64}
-                height={64}
-                className="w-16 h-16 rounded-full border-2 border-gold/50"
-              />
-            )}
-            <div>
-              <h1 className="text-2xl font-bold">
-                Welcome, {profile?.display_name || profile?.username || "Player"}!
-              </h1>
-              <p className="text-gray-400 text-sm">
-                {profile?.is_founder && (
-                  <span className="text-gold mr-2">🏅 Founder</span>
-                )}
-                {profile?.country_code && profile.country_code !== "XX" && (
-                  <span>Representing {profile.country_code}</span>
-                )}
-              </p>
+        <section className="mb-6 overflow-hidden rounded-3xl border border-surface-border bg-surface shadow-2xl shadow-gold/5">
+          <div className="bg-[radial-gradient(circle_at_top_right,_rgba(212,175,55,0.18),_transparent_35%)] p-6 sm:p-8">
+            <div className="mb-8 flex items-center gap-4">
+              {typedProfile.avatar_url ? (
+                <Image src={typedProfile.avatar_url} alt="Avatar" width={72} height={72} className="h-16 w-16 rounded-full border-2 border-gold/50 object-cover sm:h-[72px] sm:w-[72px]" />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-gold/50 bg-background text-2xl sm:h-[72px] sm:w-[72px]">🏆</div>
+              )}
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">Welcome back</p>
+                <h1 className="truncate text-2xl font-bold sm:text-4xl">{typedProfile.display_name || typedProfile.username || "Player"}</h1>
+                <p className="mt-1 text-sm text-gray-400">Representing {countryLabel}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-surface-border bg-background/80 p-5">
+                <p className="text-3xl font-bold gold-text-gradient">{typedProfile.points ?? 0}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-gray-500">Points</p>
+              </div>
+              <div className="rounded-2xl border border-surface-border bg-background/80 p-5">
+                <p className="text-lg font-bold text-white">{countryLabel}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-gray-500">Country</p>
+              </div>
+              <div className="rounded-2xl border border-surface-border bg-background/80 p-5">
+                <p className={typedProfile.is_founder ? "text-lg font-bold text-gold" : "text-lg font-bold text-gray-300"}>
+                  {typedProfile.is_founder ? "🏅 Founder" : "Not yet"}
+                </p>
+                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-gray-500">Founder badge</p>
+              </div>
             </div>
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-background rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold gold-text-gradient">{profile?.points || 0}</p>
-              <p className="text-xs text-gray-400 mt-1">Points</p>
-            </div>
-            <div className="bg-background rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-white">{profile?.country_code || "—"}</p>
-              <p className="text-xs text-gray-400 mt-1">Country</p>
-            </div>
-            <div className="bg-background rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-white">{profile?.referral_code || "—"}</p>
-              <p className="text-xs text-gray-400 mt-1">Referral Code</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Coming soon */}
-        <div className="text-center text-gray-500 py-12">
-          <p className="text-lg">🏟️ Match predictions coming soon...</p>
-          <p className="text-sm mt-2">The World Cup 2026 is approaching. Get ready!</p>
-        </div>
+        <nav className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Link href="/predictions" className="rounded-3xl border border-gold/30 bg-gold/10 p-6 transition hover:border-gold hover:bg-gold/15">
+            <span className="text-3xl">🎯</span>
+            <h2 className="mt-4 text-xl font-bold text-white">Predictions</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-400">Pick home, draw, or away before each match locks.</p>
+          </Link>
+          <Link href="/leaderboard" className="rounded-3xl border border-surface-border bg-surface p-6 transition hover:border-gold/60">
+            <span className="text-3xl">🏅</span>
+            <h2 className="mt-4 text-xl font-bold text-white">Leaderboard</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-400">Track global points and country rivals.</p>
+          </Link>
+        </nav>
       </div>
     </main>
   );

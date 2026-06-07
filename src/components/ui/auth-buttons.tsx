@@ -19,7 +19,12 @@ export function AuthButtons({ isAuthenticated }: AuthButtonsProps) {
   }
 
   return (
-    <form action={signInWithGoogle}>
+    <form
+      action={async () => {
+        "use server";
+        await signInWithGoogle();
+      }}
+    >
       <button
         type="submit"
         className="rounded-full bg-[var(--gold)] px-5 py-2 text-sm font-semibold text-black transition hover:bg-[var(--gold-soft)]"
