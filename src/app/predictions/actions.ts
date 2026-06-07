@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { fetchPredictionMatchById, isPredictableMatchStatus } from "@/lib/data/upcomingPredictionMatches";
 import { createClient } from "@/lib/supabase/server";
 
 const PICKS = ["home", "draw", "away"] as const;
@@ -37,13 +38,9 @@ export async function savePrediction(formData: FormData) {
     redirect("/onboarding/country");
   }
 
-  const { data: match } = await supabase
-    .from("matches")
-    .select("id, kickoff_at, status")
-    .eq("id", matchId)
-    .single();
+  const match = await fetchPredictionMatchById(supabase, matchId);
 
-  if (!match || match.status !== "scheduled" || new Date(match.kickoff_at) <= new Date()) {
+  if (!match || !isPredictableMatchStatus(match.status) || new Date(match.kickoff_at) <= new Date()) {
     redirect("/predictions?error=locked");
   }
 

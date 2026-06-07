@@ -87,7 +87,7 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
             <MatchCountdown kickoffAt={match.kickoff_at} />
           </div>
           <Link
-            href="/predictions"
+            href={`/predictions?match=${match.id}`}
             className="inline-flex items-center justify-center rounded-full bg-gold px-6 py-3 text-sm font-bold text-black transition hover:bg-gold-light"
           >
             🎯 Predict

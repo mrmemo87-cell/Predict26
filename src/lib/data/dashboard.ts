@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 
 type DashboardData = {
   rank: number | null;
@@ -25,7 +26,7 @@ export const getDashboardData = async (): Promise<DashboardData | null> => {
     return null;
   }
 
-  const [{ data: profile }, { data: leaderboardRow }, { data: upcomingMatches }, { data: recentPredictions }] =
+  const [{ data: profile }, { data: leaderboardRow }, upcomingMatches, { data: recentPredictions }] =
     await Promise.all([
       supabase.from("profiles").select("points, accuracy").eq("id", user.id).single(),
       supabase
@@ -33,12 +34,7 @@ export const getDashboardData = async (): Promise<DashboardData | null> => {
         .select("global_rank, distance_to_top3, distance_to_prize_zone")
         .eq("user_id", user.id)
         .maybeSingle(),
-      supabase
-        .from("matches")
-        .select("id, home_team, away_team, kickoff_at")
-        .eq("status", "scheduled")
-        .order("kickoff_at", { ascending: true })
-        .limit(5),
+      fetchUpcomingPredictionMatches(supabase, 5),
       supabase
         .from("predictions")
         .select("id, choice, points_awarded, matches(home_team, away_team)")

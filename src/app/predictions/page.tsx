@@ -1,15 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import { savePrediction } from "./actions";
-
-type MatchRow = {
-  id: string;
-  home_team: string;
-  away_team: string;
-  kickoff_at: string;
-  status: string;
-};
 
 type PredictionRow = {
   match_id: string;
@@ -31,7 +24,7 @@ const formatKickoff = (kickoffAt: string) =>
 export default async function PredictionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{ error?: string; saved?: string; match?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await createClient();
@@ -53,12 +46,8 @@ export default async function PredictionsPage({
     redirect("/onboarding/country");
   }
 
-  const [{ data: matches }, { data: predictions }] = await Promise.all([
-    supabase
-      .from("matches")
-      .select("id, home_team, away_team, kickoff_at, status")
-      .eq("status", "scheduled")
-      .order("kickoff_at", { ascending: true }),
+  const [matches, { data: predictions }] = await Promise.all([
+    fetchUpcomingPredictionMatches(supabase, 20),
     supabase.from("predictions").select("match_id, choice").eq("user_id", user.id),
   ]);
 
@@ -97,12 +86,22 @@ export default async function PredictionsPage({
         )}
 
         <div className="space-y-4">
-          {((matches ?? []) as MatchRow[]).map((match) => {
+          {matches.map((match) => {
             const selected = selectedByMatch.get(match.id);
             const locked = new Date(match.kickoff_at) <= now;
 
+            const isHighlighted = params.match === match.id;
+
             return (
-              <article key={match.id} className="rounded-3xl border border-surface-border bg-surface/90 p-4 sm:p-6">
+              <article
+                key={match.id}
+                id={`match-${match.id}`}
+                className={`scroll-mt-6 rounded-3xl border p-4 sm:p-6 ${
+                  isHighlighted
+                    ? "border-gold bg-gold/10 shadow-2xl shadow-gold/10"
+                    : "border-surface-border bg-surface/90"
+                }`}
+              >
                 <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.25em] text-gray-500">{formatKickoff(match.kickoff_at)}</p>
@@ -136,9 +135,9 @@ export default async function PredictionsPage({
             );
           })}
 
-          {(!matches || matches.length === 0) && (
+          {matches.length === 0 && (
             <div className="rounded-3xl border border-surface-border bg-surface p-10 text-center text-gray-400">
-              No scheduled matches are available yet.
+              No upcoming prediction matches are available yet.
             </div>
           )}
         </div>

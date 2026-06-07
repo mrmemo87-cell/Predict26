@@ -1,6 +1,19 @@
+-- DEV ONLY. Do not use for production official schedule.
 -- Predict26 sample dashboard data for manual Supabase use only.
 -- Run manually in the Supabase SQL editor or psql after migrations are applied.
 -- This file intentionally does not run as part of application startup.
+--
+-- Manual cleanup for production databases that accidentally received this DEV seed:
+--   do $$
+--   begin
+--     if to_regclass('public.matches') is not null then
+--       delete from public.matches
+--       where home_team in ('Dev Alpha FC', 'Dev Gamma FC', 'Dev Echo FC', 'Dev Stadium Testers')
+--          or away_team in ('Dev Beta FC', 'Dev Delta FC', 'Dev Foxtrot FC', 'Dev Bracket Bots');
+--     end if;
+--   end $$;
+-- The cleanup is intentionally narrow and does not touch public.predictions. Delete only after
+-- confirming these dev matches are not referenced by real user predictions in your environment.
 
 begin;
 
@@ -17,22 +30,28 @@ begin
     if coalesce(country_code_max_length, 3) <= 2 then
       insert into public.countries (code, name, flag_emoji)
       values
-        ('US', 'United States', '🇺🇸'),
-        ('CA', 'Canada', '🇨🇦'),
-        ('MX', 'Mexico', '🇲🇽'),
-        ('BR', 'Brazil', '🇧🇷'),
-        ('JP', 'Japan', '🇯🇵')
+        ('XA', 'Dev Alpha FC', '🧪'),
+        ('XB', 'Dev Beta FC', '🧪'),
+        ('XC', 'Dev Gamma FC', '🧪'),
+        ('XD', 'Dev Delta FC', '🧪'),
+        ('XE', 'Dev Echo FC', '🧪'),
+        ('XF', 'Dev Foxtrot FC', '🧪'),
+        ('XS', 'Dev Stadium Testers', '🧪'),
+        ('XG', 'Dev Bracket Bots', '🧪')
       on conflict (code) do update
         set name = excluded.name,
             flag_emoji = excluded.flag_emoji;
     else
       insert into public.countries (code, name, flag_emoji)
       values
-        ('USA', 'United States', '🇺🇸'),
-        ('CAN', 'Canada', '🇨🇦'),
-        ('MEX', 'Mexico', '🇲🇽'),
-        ('BRA', 'Brazil', '🇧🇷'),
-        ('JPN', 'Japan', '🇯🇵')
+        ('XAA', 'Dev Alpha FC', '🧪'),
+        ('XBB', 'Dev Beta FC', '🧪'),
+        ('XCC', 'Dev Gamma FC', '🧪'),
+        ('XDD', 'Dev Delta FC', '🧪'),
+        ('XEE', 'Dev Echo FC', '🧪'),
+        ('XFF', 'Dev Foxtrot FC', '🧪'),
+        ('XST', 'Dev Stadium Testers', '🧪'),
+        ('XGG', 'Dev Bracket Bots', '🧪')
       on conflict (code) do update
         set name = excluded.name,
             flag_emoji = excluded.flag_emoji;
@@ -114,25 +133,25 @@ begin
 
   if has_competition_id then
     insert into public.competitions (slug, name, is_active)
-    values ('world-cup-2026', 'FIFA World Cup 2026', true)
+    values ('predict26-dev-schedule', 'Predict26 Dev Test Schedule', true)
     on conflict (slug) do update
       set name = excluded.name,
           is_active = true;
 
     select id into competition_id
     from public.competitions
-    where slug = 'world-cup-2026';
+    where slug = 'predict26-dev-schedule';
   end if;
 
   for match_record in
     select *
     from (
       values
-        (2601, 'KG', 'KGZ', 'Kyrgyzstan', 'US', 'USA', 'United States', '2026-06-14 22:00:00+00'::timestamptz, 'group', 'A', 'SoFi Stadium', 'Los Angeles'),
-        (2602, 'KZ', 'KAZ', 'Kazakhstan', 'CA', 'CAN', 'Canada', '2026-06-16 01:00:00+00'::timestamptz, 'group', 'B', 'BC Place', 'Vancouver'),
-        (2603, 'UZ', 'UZB', 'Uzbekistan', 'MX', 'MEX', 'Mexico', '2026-06-18 19:00:00+00'::timestamptz, 'group', 'C', 'Estadio Akron', 'Guadalajara'),
-        (2604, 'RU', 'RUS', 'Russia', 'BR', 'BRA', 'Brazil', '2026-06-21 00:00:00+00'::timestamptz, 'group', 'D', 'AT&T Stadium', 'Dallas'),
-        (2605, 'KG', 'KGZ', 'Kyrgyzstan', 'JP', 'JPN', 'Japan', '2026-06-24 20:00:00+00'::timestamptz, 'round_of_32', null, 'MetLife Stadium', 'New York/New Jersey')
+        (926001, 'XA', 'XAA', 'Dev Alpha FC', 'XB', 'XBB', 'Dev Beta FC', (now() + interval '2 days')::timestamptz, 'group', 'A', 'Dev Venue Alpha', 'Dev City Alpha'),
+        (926002, 'XC', 'XCC', 'Dev Gamma FC', 'XD', 'XDD', 'Dev Delta FC', (now() + interval '4 days')::timestamptz, 'group', 'B', 'Dev Venue Beta', 'Dev City Beta'),
+        (926003, 'XE', 'XEE', 'Dev Echo FC', 'XF', 'XFF', 'Dev Foxtrot FC', (now() + interval '6 days')::timestamptz, 'group', 'C', 'Dev Venue Gamma', 'Dev City Gamma'),
+        (926004, 'XA', 'XAA', 'Dev Alpha FC', 'XD', 'XDD', 'Dev Delta FC', (now() + interval '8 days')::timestamptz, 'group', 'D', 'Dev Venue Delta', 'Dev City Delta'),
+        (926005, 'XS', 'XST', 'Dev Stadium Testers', 'XG', 'XGG', 'Dev Bracket Bots', (now() + interval '10 days')::timestamptz, 'round_of_32', null, 'Dev Venue Knockout', 'Dev City Knockout')
     ) as seed_matches(
       match_number,
       home_alpha2,
@@ -261,11 +280,11 @@ begin
   select title, created_at::timestamptz
   from (
     values
-      ('FIFA confirms expanded 2026 match windows across North America', '2026-06-07 12:00:00+00'),
-      ('Central Asia supporters prepare for a historic World Cup summer', '2026-06-08 09:30:00+00'),
-      ('Prediction deadlines will lock at kickoff for every scheduled match', '2026-06-09 15:00:00+00'),
-      ('Golden boot contenders headline the opening week fixtures', '2026-06-10 18:45:00+00'),
-      ('Command Center standings will refresh after completed results', '2026-06-11 11:15:00+00')
+      ('DEV: sample news item for dashboard rendering', now()),
+      ('DEV: prediction deadlines lock at kickoff in test data', now() + interval '1 hour'),
+      ('DEV: command center cards support empty and populated states', now() + interval '2 hours'),
+      ('DEV: leaderboard summaries refresh after test results', now() + interval '3 hours'),
+      ('DEV: remove this seed before production schedule import', now() + interval '4 hours')
   ) as sample_news(title, created_at)
   where not exists (
     select 1 from public.world_cup_news
