@@ -24,7 +24,7 @@ export default function MatchCountdown({ kickoffAt }: MatchCountdownProps) {
   const isClient = seconds !== 0;
 
   if (!isClient) {
-    return <span className="text-sm text-gray-400">Loading...</span>;
+    return <span className="text-sm text-gray-400" aria-label="Loading countdown">Loading...</span>;
   }
 
   // Use `seconds` (epoch seconds) to derive current time without calling Date.now() during render
