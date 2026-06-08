@@ -74,18 +74,31 @@ export async function savePrediction(formData: FormData) {
   const validHomeScore = homeScore as number;
   const validAwayScore = awayScore as number;
 
-  const { error } = await supabase.from("predictions").upsert(
-    {
-      user_id: user.id,
-      match_id: unlockedMatch.id,
-      home_score: validHomeScore,
-      away_score: validAwayScore,
-      choice: getPredictionChoice(validHomeScore, validAwayScore),
-    },
-    { onConflict: "user_id,match_id" },
-  );
+  const predictionChoice = getPredictionChoice(validHomeScore, validAwayScore);
+  const predictionPayload = {
+    user_id: user.id,
+    match_id: unlockedMatch.id,
+    home_score: validHomeScore,
+    away_score: validAwayScore,
+    choice: predictionChoice,
+  };
+
+  const { error } = await supabase.from("predictions").upsert(predictionPayload, {
+    onConflict: "user_id,match_id",
+  });
 
   if (error) {
+    console.error("Failed to save prediction", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      matchId: unlockedMatch.id,
+      userId: user.id,
+      homeScore: validHomeScore,
+      awayScore: validAwayScore,
+      choice: predictionChoice,
+    });
     redirectWithError("save_failed", validMatchId);
   }
 
