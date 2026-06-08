@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { fetchPredictionMatchById, isPredictableMatchStatus } from "@/lib/data/upcomingPredictionMatches";
 import { createClient } from "@/lib/supabase/server";
+import { buildTeamCodeAliasMap, normalizeTeamCode, resolveMatchSideTeamCode } from "@/lib/football-data/teamCodes";
 
 const MIN_SCORE = 0;
 const MAX_SCORE = 20;
@@ -15,11 +16,6 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 type AuthenticatedPredictionUser = {
   id: string;
-};
-
-type TeamAliasRow = {
-  alias_code: string | null;
-  canonical_team_code: string | null;
 };
 
 type SquadPlayerTeamRow = {
@@ -98,8 +94,8 @@ const requireOpenPredictionMatch = async (
   return match as NonNullable<Awaited<ReturnType<typeof fetchPredictionMatchById>>>;
 };
 
-const normalizeTeamCodes = async (supabase: SupabaseServerClient, teamCodes: Array<string | null>) => {
-  const rawCodes = [...new Set(teamCodes.map((code) => code?.trim().toUpperCase()).filter(Boolean) as string[])];
+const fetchTeamCodeAliases = async (supabase: SupabaseServerClient, teamCodes: Array<string | null>) => {
+  const rawCodes = [...new Set(teamCodes.map(normalizeTeamCode).filter(Boolean) as string[])];
 
   if (rawCodes.length === 0) return new Map<string, string>();
 
@@ -109,13 +105,7 @@ const normalizeTeamCodes = async (supabase: SupabaseServerClient, teamCodes: Arr
     .eq("competition_code", "WC2026")
     .in("alias_code", rawCodes);
 
-  const aliases = new Map(
-    ((data ?? []) as TeamAliasRow[])
-      .filter((row) => row.alias_code && row.canonical_team_code)
-      .map((row) => [row.alias_code as string, row.canonical_team_code as string]),
-  );
-
-  return new Map(rawCodes.map((code) => [code, aliases.get(code) ?? code]));
+  return buildTeamCodeAliasMap(data);
 };
 
 const parseUniqueScorerIds = (formData: FormData) => {
@@ -250,9 +240,14 @@ export async function saveScorerPredictions(formData: FormData) {
   const user = await requirePredictionUser(supabase);
   const match = await requireOpenPredictionMatch(supabase, validMatchId);
 
-  const normalizedCodes = await normalizeTeamCodes(supabase, [match.home_country_code, match.away_country_code]);
-  const homeTeamCode = match.home_country_code ? normalizedCodes.get(match.home_country_code.trim().toUpperCase()) : null;
-  const awayTeamCode = match.away_country_code ? normalizedCodes.get(match.away_country_code.trim().toUpperCase()) : null;
+  const aliases = await fetchTeamCodeAliases(supabase, [
+    match.home_team_code,
+    match.away_team_code,
+    match.home_country_code,
+    match.away_country_code,
+  ]);
+  const homeTeamCode = resolveMatchSideTeamCode(match.home_team_code, match.home_country_code, aliases);
+  const awayTeamCode = resolveMatchSideTeamCode(match.away_team_code, match.away_country_code, aliases);
   const matchTeamCodes = [homeTeamCode, awayTeamCode].filter(Boolean) as string[];
 
   if (playerIds.length > 0 && matchTeamCodes.length < 2) {

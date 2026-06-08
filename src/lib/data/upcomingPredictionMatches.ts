@@ -11,6 +11,8 @@ export type UpcomingPredictionMatch = {
   venue: string | null;
   home_country_code: string | null;
   away_country_code: string | null;
+  home_team_code: string | null;
+  away_team_code: string | null;
   home_score: number | null;
   away_score: number | null;
 };
@@ -42,8 +44,10 @@ const normalizeMatch = (match: RawMatchRow): UpcomingPredictionMatch => ({
   stage: match.stage || match.group_name || null,
   status: match.status ?? "scheduled",
   venue: match.venue ?? null,
-  home_country_code: match.home_country_code || match.home_team_code || null,
-  away_country_code: match.away_country_code || match.away_team_code || null,
+  home_country_code: match.home_country_code || null,
+  away_country_code: match.away_country_code || null,
+  home_team_code: match.home_team_code || null,
+  away_team_code: match.away_team_code || null,
   home_score: match.home_score ?? null,
   away_score: match.away_score ?? null,
 });
