@@ -2,13 +2,62 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
-import { savePrediction } from "./actions";
+import { savePossessionPrediction, savePrediction, saveScorerPredictions } from "./actions";
 
 type PredictionRow = {
   match_id: string;
   home_score: number | null;
   away_score: number | null;
 };
+
+type PossessionRow = {
+  match_id: string;
+  choice: "home_more" | "away_more" | "equal_50_50";
+};
+
+type ScorerPredictionRow = {
+  match_id: string;
+  player_id: string;
+};
+
+type TeamAliasRow = {
+  alias_code: string | null;
+  canonical_team_code: string | null;
+};
+
+type SquadRow = {
+  team_code: string | null;
+  team_name: string | null;
+  squad_number: number | null;
+  position: string | null;
+  player_id: string | null;
+  players: { display_name: string | null } | Array<{ display_name: string | null }> | null;
+};
+
+type SquadPlayer = {
+  playerId: string;
+  displayName: string;
+  shirtNumber: number | null;
+  position: string | null;
+  teamCode: string;
+  teamName: string;
+};
+
+type SearchParams = Promise<{
+  error?: string;
+  saved?: string;
+  match?: string;
+  bonus_error?: string;
+  bonus_saved?: string;
+}>;
+
+const POSSESSION_OPTIONS = [
+  { value: "home_more", label: "Home more possession" },
+  { value: "equal_50_50", label: "50/50" },
+  { value: "away_more", label: "Away more possession" },
+] as const;
+
+const SCORER_PICK_SLOTS = [0, 1, 2, 3];
 
 const formatKickoff = (kickoffAt: string | null) => {
   if (!kickoffAt) return "Time TBA";
@@ -22,11 +71,41 @@ const formatKickoff = (kickoffAt: string | null) => {
   }
 };
 
-export default async function PredictionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string; saved?: string; match?: string }>;
-}) {
+const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+};
+
+const normalizeCode = (code: string | null | undefined, aliases: Map<string, string>) => {
+  const rawCode = code?.trim().toUpperCase();
+  if (!rawCode) return null;
+  return aliases.get(rawCode) ?? rawCode;
+};
+
+const getBonusErrorMessage = (error: string) => {
+  switch (error) {
+    case "invalid_possession":
+      return "Choose one possession option before saving.";
+    case "too_many_scorers":
+      return "Choose up to 4 scorer picks.";
+    case "invalid_scorer":
+      return "Choose scorers from the two squads for this match.";
+    case "locked":
+      return "Bonus picks are locked for this match.";
+    case "bonus_save_failed":
+      return "Could not save bonus picks. Please try again.";
+    default:
+      return "Could not save bonus picks. Please check your selections.";
+  }
+};
+
+const getBonusSavedMessage = (saved: string) => {
+  if (saved === "possession") return "Possession prediction saved.";
+  if (saved === "scorers") return "Scorer predictions saved.";
+  return "Bonus picks saved.";
+};
+
+export default async function PredictionsPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const supabase = await createClient();
   const {
@@ -52,8 +131,83 @@ export default async function PredictionsPage({
     supabase.from("predictions").select("match_id, home_score, away_score").eq("user_id", user.id),
   ]);
 
+  const matchIds = matches.map((match) => match.id);
+  const rawTeamCodes = [
+    ...new Set(
+      matches
+        .flatMap((match) => [match.home_country_code, match.away_country_code])
+        .map((code) => code?.trim().toUpperCase())
+        .filter(Boolean) as string[],
+    ),
+  ];
+
+  const [possessionRes, scorerRes, aliasRes] = await Promise.all([
+    matchIds.length > 0
+      ? supabase.from("prediction_possession").select("match_id, choice").eq("user_id", user.id).in("match_id", matchIds)
+      : Promise.resolve({ data: [] }),
+    matchIds.length > 0
+      ? supabase.from("prediction_scorers").select("match_id, player_id").eq("user_id", user.id).in("match_id", matchIds).order("slot", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    rawTeamCodes.length > 0
+      ? supabase.from("team_code_aliases").select("alias_code, canonical_team_code").eq("competition_code", "WC2026").in("alias_code", rawTeamCodes)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const aliases = new Map(
+    ((aliasRes.data ?? []) as TeamAliasRow[])
+      .filter((row) => row.alias_code && row.canonical_team_code)
+      .map((row) => [row.alias_code as string, row.canonical_team_code as string]),
+  );
+
+  const canonicalTeamCodes = [
+    ...new Set(
+      rawTeamCodes.map((code) => normalizeCode(code, aliases)).filter(Boolean) as string[],
+    ),
+  ];
+
+  const { data: squadRows } = canonicalTeamCodes.length > 0
+    ? await supabase
+        .from("competition_team_players")
+        .select("team_code, team_name, squad_number, position, player_id, players(display_name)")
+        .eq("competition_code", "WC2026")
+        .eq("is_active", true)
+        .in("team_code", canonicalTeamCodes)
+        .order("team_code", { ascending: true })
+        .order("squad_number", { ascending: true })
+    : { data: [] };
+
   const scoresByMatch = new Map(
     ((predictions ?? []) as PredictionRow[]).map((prediction) => [prediction.match_id, prediction]),
+  );
+  const possessionByMatch = new Map(
+    ((possessionRes.data ?? []) as PossessionRow[]).map((prediction) => [prediction.match_id, prediction.choice]),
+  );
+  const scorerIdsByMatch = ((scorerRes.data ?? []) as ScorerPredictionRow[]).reduce<Map<string, string[]>>((savedScorers, scorer) => {
+    const picks = savedScorers.get(scorer.match_id) ?? [];
+    picks.push(scorer.player_id);
+    savedScorers.set(scorer.match_id, picks);
+    return savedScorers;
+  }, new Map());
+
+  const squadPlayersByTeam = ((squadRows ?? []) as SquadRow[]).reduce<Map<string, SquadPlayer[]>>((playersByTeam, row) => {
+    if (!row.team_code || !row.player_id) return playersByTeam;
+
+    const player = firstRelation(row.players);
+    const players = playersByTeam.get(row.team_code) ?? [];
+    players.push({
+      playerId: row.player_id,
+      displayName: player?.display_name ?? "Player TBA",
+      shirtNumber: row.squad_number,
+      position: row.position,
+      teamCode: row.team_code,
+      teamName: row.team_name ?? row.team_code,
+    });
+    playersByTeam.set(row.team_code, players);
+    return playersByTeam;
+  }, new Map());
+
+  const playersById = new Map(
+    [...squadPlayersByTeam.values()].flat().map((player) => [player.playerId, player]),
   );
   const now = new Date();
 
@@ -74,18 +228,25 @@ export default async function PredictionsPage({
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">World Cup 2026 match center</p>
           <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">Predict the <span className="gold-text-gradient">exact score</span></h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
-            Enter the exact final score before kickoff. Each match accepts one prediction per user, and you can update it until the match locks.
+            Enter the exact final score before kickoff. Bonus picks are optional and save separately, so the core score prediction stays simple.
           </p>
           <div className="mt-5 flex flex-wrap gap-2 text-xs font-bold">
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Locks at kickoff</span>
             <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-gold-dark">Exact score: 5 pts</span>
             <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-700">Correct result: 2 pts</span>
+            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">Possession: 1 pt</span>
+            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">Scorers: 1 each</span>
           </div>
         </section>
 
         {params.saved && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
             Prediction saved.
+          </div>
+        )}
+        {params.bonus_saved && (
+          <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+            {getBonusSavedMessage(params.bonus_saved)}
           </div>
         )}
         {params.error && (
@@ -97,6 +258,11 @@ export default async function PredictionsPage({
                 : "Could not save prediction. Please try again."}
           </div>
         )}
+        {params.bonus_error && (
+          <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+            {getBonusErrorMessage(params.bonus_error)}
+          </div>
+        )}
 
         <div className="space-y-4">
           {matches.map((match) => {
@@ -106,6 +272,16 @@ export default async function PredictionsPage({
             const savedPredictionLabel = savedScore && savedScore.home_score !== null && savedScore.away_score !== null
               ? `${savedScore.home_score} - ${savedScore.away_score}`
               : null;
+            const savedPossession = possessionByMatch.get(match.id) ?? null;
+            const savedScorerIds = scorerIdsByMatch.get(match.id) ?? [];
+            const homeCode = normalizeCode(match.home_country_code, aliases);
+            const awayCode = normalizeCode(match.away_country_code, aliases);
+            const homeSquad = homeCode ? (squadPlayersByTeam.get(homeCode) ?? []) : [];
+            const awaySquad = awayCode ? (squadPlayersByTeam.get(awayCode) ?? []) : [];
+            const hasScorerSquads = homeSquad.length > 0 && awaySquad.length > 0;
+            const savedScorerLabels = savedScorerIds
+              .map((playerId) => playersById.get(playerId)?.displayName)
+              .filter(Boolean) as string[];
 
             return (
               <article
@@ -186,6 +362,104 @@ export default async function PredictionsPage({
                     </button>
                   </form>
                 )}
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-gray-200 bg-white/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-black text-gray-900">Possession Prediction</h3>
+                        <p className="mt-1 text-xs text-gray-500">1 point for the team that finishes with more possession.</p>
+                      </div>
+                      <span className="rounded-full bg-gold/10 px-2.5 py-1 text-xs font-bold text-gold-dark">1 pt</span>
+                    </div>
+                    {locked ? (
+                      <p className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                        Saved: <span className="font-semibold text-gray-900">{POSSESSION_OPTIONS.find((option) => option.value === savedPossession)?.label ?? "None"}</span>
+                      </p>
+                    ) : (
+                      <form action={savePossessionPrediction} className="mt-3 space-y-3">
+                        <input type="hidden" name="match_id" value={match.id} />
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {POSSESSION_OPTIONS.map((option) => (
+                            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 transition hover:border-gold/60 has-[:checked]:border-gold has-[:checked]:bg-gold/10 has-[:checked]:text-gold-dark">
+                              <input
+                                type="radio"
+                                name="possession_choice"
+                                value={option.value}
+                                defaultChecked={savedPossession === option.value}
+                                required
+                                className="h-3.5 w-3.5 accent-emerald-700"
+                              />
+                              <span>{option.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <button type="submit" className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark">
+                          Save possession pick
+                        </button>
+                      </form>
+                    )}
+                  </section>
+
+                  <section className="rounded-2xl border border-gray-200 bg-white/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-black text-gray-900">Scorer Prediction</h3>
+                        <p className="mt-1 text-xs text-gray-500">Pick up to 4 players. Each scorer is worth 1 point.</p>
+                      </div>
+                      <span className="rounded-full bg-gold/10 px-2.5 py-1 text-xs font-bold text-gold-dark">{savedScorerIds.length}/4</span>
+                    </div>
+                    {locked ? (
+                      <p className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                        Saved: <span className="font-semibold text-gray-900">{savedScorerLabels.length > 0 ? savedScorerLabels.join(", ") : "None"}</span>
+                      </p>
+                    ) : !hasScorerSquads ? (
+                      <p className="mt-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                        Scorer picks will unlock when both official squads are available for this match.
+                      </p>
+                    ) : (
+                      <form action={saveScorerPredictions} className="mt-3 space-y-3">
+                        <input type="hidden" name="match_id" value={match.id} />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {SCORER_PICK_SLOTS.map((slotIndex) => (
+                            <label key={slotIndex} className="text-xs font-semibold text-gray-600">
+                              Pick {slotIndex + 1}
+                              <select
+                                name="scorer_player_id"
+                                defaultValue={savedScorerIds[slotIndex] ?? ""}
+                                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+                              >
+                                <option value="">No player</option>
+                                <optgroup label={match.home_team}>
+                                  {homeSquad.map((player) => (
+                                    <option key={player.playerId} value={player.playerId}>
+                                      {player.shirtNumber ? `${player.shirtNumber}. ` : ""}{player.displayName}{player.position ? ` · ${player.position}` : ""}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label={match.away_team}>
+                                  {awaySquad.map((player) => (
+                                    <option key={player.playerId} value={player.playerId}>
+                                      {player.shirtNumber ? `${player.shirtNumber}. ` : ""}{player.displayName}{player.position ? ` · ${player.position}` : ""}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                        {savedScorerLabels.length > 0 && (
+                          <p className="text-xs text-gray-500">
+                            Saved: <span className="font-semibold text-gray-700">{savedScorerLabels.join(", ")}</span>
+                          </p>
+                        )}
+                        <button type="submit" className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark">
+                          Save scorer picks
+                        </button>
+                      </form>
+                    )}
+                  </section>
+                </div>
               </article>
             );
           })}
