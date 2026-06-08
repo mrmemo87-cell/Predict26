@@ -5,6 +5,8 @@ const scoringRules = [
   { label: "Correct result only", points: "2 points" },
   { label: "Possession leader", points: "1 point" },
   { label: "Predicted scorers", points: "1 point each, max 4" },
+  { label: "Champion Pick A", points: "20 points" },
+  { label: "Champion Pick B", points: "15 points" },
   { label: "Wrong result or bonus miss", points: "0 points" },
 ];
 
@@ -23,7 +25,9 @@ export default function RulesPage() {
         <header className="mb-8 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-3">
             <span className="text-2xl">⚽</span>
-            <span className="text-xl font-bold gold-text-gradient">Predict26</span>
+            <span className="text-xl font-bold gold-text-gradient">
+              Predict26
+            </span>
           </Link>
           <Link
             href="/login"
@@ -38,37 +42,53 @@ export default function RulesPage() {
             Rules
           </p>
           <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">
-            Simple rules for <span className="gold-text-gradient">Predict26</span>
+            Simple rules for{" "}
+            <span className="gold-text-gradient">Predict26</span>
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
-            Predict World Cup match scores, add optional possession and scorer bonus picks,
-            and climb the global and country leaderboards after results are confirmed.
+            Predict World Cup match scores, add optional possession, scorer,
+            lineup, and champion picks, and climb the global and country
+            leaderboards after results are confirmed.
           </p>
           <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
-            Predict26 is a friendly score prediction game — no betting, odds, wagers, or casino mechanics.
+            Predict26 is a friendly score prediction game — no betting, odds,
+            wagers, or casino mechanics.
           </div>
         </section>
 
         <div className="space-y-6">
           <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-bold text-gray-900">How predictions work</h2>
+            <h2 className="text-2xl font-bold text-gray-900">
+              How predictions work
+            </h2>
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                <p className="text-sm font-semibold text-gray-900">1. Pick a score</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  1. Pick a score
+                </p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  Enter the final score you think each match will have. Exact score remains the core pick.
+                  Enter the final score you think each match will have. Exact
+                  score remains the core pick.
                 </p>
               </div>
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                <p className="text-sm font-semibold text-gray-900">2. Update before kickoff</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  2. Update before kickoff
+                </p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  You can change your score and available bonus picks while the match is still open.
+                  You can change your score and available match bonus picks
+                  while the match is still open. Champion picks follow their own
+                  join-time eligibility and configured deadlines.
                 </p>
               </div>
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                <p className="text-sm font-semibold text-gray-900">3. Lock at kickoff</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  3. Lock at kickoff
+                </p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  Score, possession, and scorer picks lock at kickoff and cannot be changed after that.
+                  Score, possession, scorer, and lineup picks lock at kickoff
+                  and cannot be changed after that. Champion Pick A and B lock
+                  at their configured deadlines.
                 </p>
               </div>
             </div>
@@ -82,7 +102,9 @@ export default function RulesPage() {
                   key={rule.label}
                   className="flex items-center justify-between rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3"
                 >
-                  <span className="font-semibold text-gray-900">{rule.label}</span>
+                  <span className="font-semibold text-gray-900">
+                    {rule.label}
+                  </span>
                   <span className="rounded-full bg-gold/10 px-3 py-1 text-sm font-bold text-gold-dark">
                     {rule.points}
                   </span>
@@ -92,10 +114,37 @@ export default function RulesPage() {
           </section>
 
           <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-bold text-gray-900">Leaderboards and winners</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Champion picks</h2>
+            <ul className="mt-5 space-y-3 text-sm leading-6 text-gray-600">
+              <li>
+                • Champion Pick A is worth 20 points when champion scoring is
+                enabled later.
+              </li>
+              <li>
+                • Champion Pick B is worth 15 points when champion scoring is
+                enabled later.
+              </li>
+              <li>
+                • Availability depends on when you joined Predict26 and the
+                configured Pick A/Pick B deadlines.
+              </li>
+              <li>
+                • Users who join after the Round of 16 starts cannot submit
+                champion picks.
+              </li>
+            </ul>
+          </section>
+
+          <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+            <h2 className="text-2xl font-bold text-gray-900">
+              Leaderboards and winners
+            </h2>
             <ul className="mt-5 space-y-3 text-sm leading-6 text-gray-600">
               <li>• Predict26 has a global leaderboard for all players.</li>
-              <li>• Predict26 has country leaderboards for players representing each country.</li>
+              <li>
+                • Predict26 has country leaderboards for players representing
+                each country.
+              </li>
               <li>• Ranks update after scores are confirmed.</li>
               <li>• MVP winners are global-only for the first launch.</li>
               <li>• Country winners may be added later.</li>
@@ -117,11 +166,13 @@ export default function RulesPage() {
           </section>
 
           <section className="rounded-3xl border border-gold/20 bg-gold/5 p-6 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-bold text-gray-900">Data disclaimer</h2>
+            <h2 className="text-2xl font-bold text-gray-900">
+              Data disclaimer
+            </h2>
             <p className="mt-4 text-sm leading-6 text-gray-700">
-              Schedules, scores, teams, venues, lineups, referees, and live data may update.
-              Admins may correct data before scoring. Users should verify important details
-              from FIFA or other official sources.
+              Schedules, scores, teams, venues, lineups, referees, and live data
+              may update. Admins may correct data before scoring. Users should
+              verify important details from FIFA or other official sources.
             </p>
           </section>
         </div>
