@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import { savePossessionPrediction, savePrediction, saveScorerPredictions } from "./actions";
+import { buildTeamCodeAliasMap, normalizeTeamCode, resolveMatchSideTeamCode } from "@/lib/football-data/teamCodes";
 
 type PredictionRow = {
   match_id: string;
@@ -18,11 +19,6 @@ type PossessionRow = {
 type ScorerPredictionRow = {
   match_id: string;
   player_id: string;
-};
-
-type TeamAliasRow = {
-  alias_code: string | null;
-  canonical_team_code: string | null;
 };
 
 type SquadRow = {
@@ -74,12 +70,6 @@ const formatKickoff = (kickoffAt: string | null) => {
 const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
-};
-
-const normalizeCode = (code: string | null | undefined, aliases: Map<string, string>) => {
-  const rawCode = code?.trim().toUpperCase();
-  if (!rawCode) return null;
-  return aliases.get(rawCode) ?? rawCode;
 };
 
 const getBonusErrorMessage = (error: string) => {
@@ -135,8 +125,8 @@ export default async function PredictionsPage({ searchParams }: { searchParams: 
   const rawTeamCodes = [
     ...new Set(
       matches
-        .flatMap((match) => [match.home_country_code, match.away_country_code])
-        .map((code) => code?.trim().toUpperCase())
+        .flatMap((match) => [match.home_team_code, match.away_team_code, match.home_country_code, match.away_country_code])
+        .map(normalizeTeamCode)
         .filter(Boolean) as string[],
     ),
   ];
@@ -153,15 +143,11 @@ export default async function PredictionsPage({ searchParams }: { searchParams: 
       : Promise.resolve({ data: [] }),
   ]);
 
-  const aliases = new Map(
-    ((aliasRes.data ?? []) as TeamAliasRow[])
-      .filter((row) => row.alias_code && row.canonical_team_code)
-      .map((row) => [row.alias_code as string, row.canonical_team_code as string]),
-  );
+  const aliases = buildTeamCodeAliasMap(aliasRes.data);
 
   const canonicalTeamCodes = [
     ...new Set(
-      rawTeamCodes.map((code) => normalizeCode(code, aliases)).filter(Boolean) as string[],
+      rawTeamCodes.map((code) => aliases.get(code) ?? code).filter(Boolean),
     ),
   ];
 
@@ -274,8 +260,8 @@ export default async function PredictionsPage({ searchParams }: { searchParams: 
               : null;
             const savedPossession = possessionByMatch.get(match.id) ?? null;
             const savedScorerIds = scorerIdsByMatch.get(match.id) ?? [];
-            const homeCode = normalizeCode(match.home_country_code, aliases);
-            const awayCode = normalizeCode(match.away_country_code, aliases);
+            const homeCode = resolveMatchSideTeamCode(match.home_team_code, match.home_country_code, aliases);
+            const awayCode = resolveMatchSideTeamCode(match.away_team_code, match.away_country_code, aliases);
             const homeSquad = homeCode ? (squadPlayersByTeam.get(homeCode) ?? []) : [];
             const awaySquad = awayCode ? (squadPlayersByTeam.get(awayCode) ?? []) : [];
             const hasScorerSquads = homeSquad.length > 0 && awaySquad.length > 0;
