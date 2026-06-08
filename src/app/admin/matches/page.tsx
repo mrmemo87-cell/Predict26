@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { markReportReviewed, saveMatch, scoreMatch } from "./actions";
+import { markReportReviewed, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
 import MatchForm from "./MatchForm";
 import { buildFlagLookup, formatFlaggedLabel } from "@/lib/domain/countries";
+import { BONUS_READINESS_STATUSES, getMatchBonusReadinessMap, type BonusReadinessCategory, type BonusReadinessDiagnostics } from "@/lib/scoring/bonusReadiness";
 
 type SearchParams = Promise<{
   error?: string;
@@ -11,6 +12,7 @@ type SearchParams = Promise<{
   report_saved?: string;
   scored?: string;
   already_scored?: string;
+  bonus_readiness_saved?: string;
   edit?: string;
 }>;
 
@@ -101,11 +103,149 @@ const ERROR_MESSAGES: Record<string, string> = {
   save_failed:
     "Could not save this match. Please check the form and try again.",
   report_save_failed: "Could not update that report. Please try again.",
+  invalid_bonus_readiness: "Choose a valid bonus readiness status before saving.",
+  bonus_readiness_failed: "Could not update bonus data readiness. Please try again.",
 };
 
 const friendlyError = (error: string) =>
   ERROR_MESSAGES[error] ??
   "Could not save changes. Please check the form and try again.";
+
+const formatPercent = (value: number | null) =>
+  value === null ? "—" : `${value.toFixed(2)}%`;
+
+const statusLabel = (status: string | null | undefined) =>
+  (status ?? "unreviewed").replaceAll("_", " ");
+
+const readinessMetadata = (readiness: BonusReadinessDiagnostics | undefined) =>
+  readiness?.metadata ?? {};
+
+const readinessStatuses = (readiness: BonusReadinessDiagnostics | undefined) => {
+  const metadata = readinessMetadata(readiness);
+  const statuses = metadata.readiness_statuses;
+
+  if (statuses && typeof statuses === "object" && !Array.isArray(statuses)) {
+    return statuses as Partial<Record<"possession" | "goal_events" | "lineup_home" | "lineup_away", string>>;
+  }
+
+  return {};
+};
+
+const statusBadgeClasses = (ready: boolean, status: string | null | undefined) => {
+  if (ready) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "ready") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (!status || status === "unreviewed") return "border-gray-200 bg-white text-gray-500";
+  return "border-rose-200 bg-rose-50 text-rose-700";
+};
+
+type BonusReadinessItem = {
+  category: BonusReadinessCategory;
+  label: string;
+  ready: boolean;
+  status: string | null | undefined;
+  reason: string | null;
+  diagnostics: string;
+  notesName: string;
+};
+
+function BonusDataReadinessPanel({
+  matchId,
+  readiness,
+}: {
+  matchId: string;
+  readiness: BonusReadinessDiagnostics | undefined;
+}) {
+  const statuses = readinessStatuses(readiness);
+  const items: BonusReadinessItem[] = [
+    {
+      category: "possession",
+      label: "Possession",
+      ready: readiness?.possessionReady ?? false,
+      status: statuses.possession,
+      reason: readiness?.possessionSkipReason ?? "unreviewed",
+      diagnostics: `Rows H/A ${readiness?.possessionHomeRows ?? 0}/${readiness?.possessionAwayRows ?? 0} · Values ${formatPercent(readiness?.possessionHomePercent ?? null)}/${formatPercent(readiness?.possessionAwayPercent ?? null)}`,
+      notesName: "possession notes",
+    },
+    {
+      category: "goal_events",
+      label: "Scorers/events",
+      ready: readiness?.scorersReady ?? false,
+      status: statuses.goal_events,
+      reason: readiness?.scorersSkipReason ?? "unreviewed",
+      diagnostics: `${readiness?.normalGoalEventsCount ?? 0} normal goal events`,
+      notesName: "scorer/event notes",
+    },
+    {
+      category: "lineup_home",
+      label: "Home lineup",
+      ready: readiness?.lineupHomeReady ?? false,
+      status: statuses.lineup_home,
+      reason: readiness?.lineupHomeSkipReason ?? "unreviewed",
+      diagnostics: `${readiness?.officialHomeStartersCount ?? 0}/11 mapped starters`,
+      notesName: "home lineup notes",
+    },
+    {
+      category: "lineup_away",
+      label: "Away lineup",
+      ready: readiness?.lineupAwayReady ?? false,
+      status: statuses.lineup_away,
+      reason: readiness?.lineupAwaySkipReason ?? "unreviewed",
+      diagnostics: `${readiness?.officialAwayStartersCount ?? 0}/11 mapped starters`,
+      notesName: "away lineup notes",
+    },
+  ];
+
+  return (
+    <details className="mt-3 rounded-2xl border border-gray-200 bg-white p-3 text-sm" open={false}>
+      <summary className="cursor-pointer list-none font-bold text-gray-800">
+        <span>Bonus Data Readiness</span>
+        <span className="ml-2 text-xs font-semibold text-gray-500">diagnostic only · no bonus points</span>
+      </summary>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {items.map((item) => (
+          <form key={item.category} action={updateBonusReadiness} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <input type="hidden" name="match_id" value={matchId} />
+            <input type="hidden" name="category" value={item.category} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-bold text-gray-900">{item.label}</p>
+                <p className="text-xs text-gray-500">{item.diagnostics}</p>
+              </div>
+              <span className={`rounded-full border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${statusBadgeClasses(item.ready, item.status)}`}>
+                {item.ready ? "ready" : statusLabel(item.status)}
+              </span>
+            </div>
+            {!item.ready && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+                Not scoreable yet: {statusLabel(item.reason)}
+              </p>
+            )}
+            {item.status === "ready" && !item.ready && (
+              <p className="mt-2 text-xs font-semibold text-rose-700">
+                Admin status is ready, but structural diagnostics still fail.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <select name="status" defaultValue={item.status ?? "unreviewed"} className="min-w-32 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700">
+                {BONUS_READINESS_STATUSES.map((status) => (
+                  <option key={status} value={status}>{statusLabel(status)}</option>
+                ))}
+              </select>
+              <input
+                name="notes"
+                placeholder={item.notesName}
+                className="min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
+              />
+              <button type="submit" className="rounded-full bg-gray-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-gold hover:text-black">
+                Save
+              </button>
+            </div>
+          </form>
+        ))}
+      </div>
+    </details>
+  );
+}
 
 export default async function AdminMatchManagerPage({
   searchParams,
@@ -154,13 +294,15 @@ export default async function AdminMatchManagerPage({
   const matchRows = (matches ?? []) as unknown as MatchRow[];
   const flagLookup = buildFlagLookup(countries);
   const matchIds = matchRows.map((match) => match.id);
-  const { data: predictionScoringRows } =
+  const [{ data: predictionScoringRows }, bonusReadinessByMatchId] = await Promise.all([
     matchIds.length > 0
-      ? await supabase
+      ? supabase
           .from("predictions")
           .select("match_id, points_awarded, result_points_applied")
           .in("match_id", matchIds)
-      : { data: [] };
+      : Promise.resolve({ data: [] }),
+    getMatchBonusReadinessMap(matchIds),
+  ]);
   const scoringSummaries = (
     (predictionScoringRows ?? []) as PredictionScoringRow[]
   ).reduce<Record<string, MatchScoringSummary>>((summaries, prediction) => {
@@ -233,6 +375,11 @@ export default async function AdminMatchManagerPage({
         {params.scored && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
             Match scored successfully.
+          </div>
+        )}
+        {params.bonus_readiness_saved && (
+          <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+            Bonus data readiness saved. No bonus points were awarded.
           </div>
         )}
         {params.already_scored && (
@@ -313,6 +460,12 @@ export default async function AdminMatchManagerPage({
                       {scoringSummary.predictions} · Points applied:{" "}
                       {scoringSummary.pointsApplied} total
                     </p>
+                    {match.status === "finished" && (
+                      <BonusDataReadinessPanel
+                        matchId={match.id}
+                        readiness={bonusReadinessByMatchId[match.id]}
+                      />
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
                     {isScoreable && (
