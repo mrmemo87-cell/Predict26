@@ -70,6 +70,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_report: "Choose a valid report update before saving.",
   match_not_scoreable: "Only finished matches with final scores can be scored.",
   scoring_failed: "Could not score this match. Please try again.",
+  save_failed: "Could not save this match. Please check the form and try again.",
+  report_save_failed: "Could not update that report. Please try again.",
 };
 
 const friendlyError = (error: string) => ERROR_MESSAGES[error] ?? "Could not save changes. Please check the form and try again.";

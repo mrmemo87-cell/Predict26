@@ -261,11 +261,51 @@ begin
     from profile_deltas d
     where pr.id = d.user_id
     returning pr.id
+  ), referral_totals as (
+    select
+      referrer_id as user_id,
+      count(*)::integer as referral_count
+    from public.referrals
+    group by referrer_id
+  ), ranked_profiles as (
+    select
+      pr.id as user_id,
+      row_number() over (order by pr.points desc, pr.created_at asc, pr.id asc)::integer as global_rank,
+      row_number() over (partition by pr.country_code order by pr.points desc, pr.created_at asc, pr.id asc)::integer as country_rank,
+      row_number() over (order by coalesce(rt.referral_count, 0) desc, pr.created_at asc, pr.id asc)::integer as referral_rank,
+      coalesce(rt.referral_count, 0) as referral_count
+    from public.profiles pr
+    left join referral_totals rt on rt.user_id = pr.id
+  ), upserted_leaderboards as (
+    insert into public.leaderboards (
+      user_id,
+      global_rank,
+      country_rank,
+      referral_rank,
+      referral_count,
+      calculated_at
+    )
+    select
+      user_id,
+      global_rank,
+      country_rank,
+      referral_rank,
+      referral_count,
+      timezone('utc', now())
+    from ranked_profiles
+    on conflict (user_id) do update
+    set
+      global_rank = excluded.global_rank,
+      country_rank = excluded.country_rank,
+      referral_rank = excluded.referral_rank,
+      referral_count = excluded.referral_count,
+      calculated_at = excluded.calculated_at
+    returning user_id
   )
   select
     p_match_id,
     coalesce((select count(*)::integer from updated_predictions), 0),
-    coalesce((select count(*)::integer from updated_profiles), 0),
+    coalesce((select count(*)::integer from updated_profiles), 0) + (select count(*)::integer * 0 from upserted_leaderboards),
     coalesce((select sum(next_points)::integer from updated_predictions), 0);
 end;
 $$;
