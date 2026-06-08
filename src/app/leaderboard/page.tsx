@@ -29,6 +29,7 @@ type StoredLeaderboardRow = {
 
 type CountryRow = {
   code: string | null;
+  name: string | null;
   flag_emoji: string | null;
 };
 
@@ -133,7 +134,8 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       .select("user_id, referral_count"),
     supabase
       .from("countries")
-      .select("code, flag_emoji"),
+      .select("code, name, flag_emoji")
+      .order("name", { ascending: true }),
   ]);
 
   const referralCounts = new Map(
@@ -167,20 +169,49 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
               ? "Country ranks are calculated against players representing this country."
               : "Global ranks are calculated from the latest player points."}
           </p>
+          <form action="/leaderboard" className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <label htmlFor="country" className="text-sm font-semibold text-gray-700">
+              Country
+            </label>
+            <select
+              id="country"
+              name="country"
+              defaultValue={countryFilter ?? ""}
+              className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+            >
+              <option value="">Global leaderboard</option>
+              {countryRows.map((country) => (
+                <option key={country.code ?? country.name} value={country.code ?? ""}>
+                  {country.flag_emoji ? `${country.flag_emoji} ` : ""}{country.name ?? country.code}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded-2xl bg-gold px-5 py-3 text-sm font-bold text-black transition hover:bg-gold-light">
+              View ranks
+            </button>
+          </form>
         </section>
 
         <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm" aria-label={title}>
           {displayedRows.map((row) => {
             const rank = countryFilter ? row.countryRank : row.globalRank;
 
+            const isCurrentUser = row.player.id === user.id;
+
             return (
-              <div key={row.player.id} className="flex items-center gap-4 border-b border-gray-200 p-4 last:border-b-0 sm:p-5">
+              <div
+                key={row.player.id}
+                className={`flex items-center gap-4 border-b p-4 last:border-b-0 sm:p-5 ${
+                  isCurrentUser ? "border-gold/40 bg-gold/10" : "border-gray-200"
+                }`}
+              >
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-50 font-bold text-gold">
                   {rank}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-bold text-gray-900">
                     {row.player.display_name || row.player.username || "Player"} {row.player.is_founder ? "🏅" : ""}
+                    {isCurrentUser ? <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">You</span> : null}
                   </p>
                   <p className="text-xs text-gray-500">
                     {row.player.country_code ?? "—"} · Global rank {row.globalRank} · Country rank {row.countryRank} · Referrals {row.referralCount}
