@@ -123,40 +123,51 @@ export default async function DashboardPage() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 sm:py-10">
+    <main className="min-h-screen bg-gray-50 bg-[radial-gradient(circle_at_top_left,rgba(22,163,74,0.10),transparent_32%),linear-gradient(90deg,rgba(22,163,74,0.05)_1px,transparent_1px),linear-gradient(0deg,rgba(22,163,74,0.04)_1px,transparent_1px)] bg-[size:auto,44px_44px,44px_44px] px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-5xl">
-        <header className="mb-6 flex items-center justify-between gap-4 sm:mb-8">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <span className="text-2xl">⚽</span>
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-4 sm:mb-8">
+          <Link href="/dashboard" className="shrink-0 flex items-center gap-3 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-700 text-xl text-white shadow-sm">⚽</span>
             <span className="text-xl font-bold gold-text-gradient">Predict26</span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
             <UserCountryBadge
               flagEmoji={userFlagEmoji}
               countryName={userCountryName}
               countryCode={userCountryCode || null}
             />
             <form action={signOut}>
-              <button type="submit" className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 transition hover:border-gold/60 hover:text-gray-900">
+              <button type="submit" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-gold/60 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
                 Sign Out
               </button>
             </form>
           </div>
         </header>
 
-        <section className="mb-5 rounded-3xl border border-gold/20 bg-gold/5 px-5 py-4 sm:mb-6 sm:px-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-gold">
-            World Cup Command Center
-          </p>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">
-            Your live prediction dashboard
-          </h1>
+        <section className="mb-5 overflow-hidden rounded-3xl border border-emerald-100 bg-white px-5 py-5 shadow-sm sm:mb-6 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-700">
+                World Cup Command Center
+              </p>
+              <h1 className="mt-2 text-2xl font-black text-gray-900 sm:text-3xl">
+                Your live prediction dashboard
+              </h1>
+            </div>
+            <Link
+              href={heroMatch ? `/predictions?match=${heroMatch.id}` : "/predictions"}
+              className="inline-flex items-center justify-center rounded-full bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            >
+              Predict upcoming match
+            </Link>
+          </div>
         </section>
 
         <div className="space-y-6">
           <CountryHero match={heroMatch} userCountryCode={userCountryCode} />
 
           <PerformanceCard
+            points={profile?.points ?? 0}
             submittedPredictions={submittedPredictions}
             scoredPredictions={scoredPredictions}
             correctPredictions={correctPredictions}
@@ -189,24 +200,25 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <nav className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Link href="/predictions" className="rounded-3xl border border-gold/30 bg-gold/5 p-6 transition hover:border-gold hover:bg-gold/10">
+          <nav aria-label="Quick actions" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Link href="/predictions" className="group rounded-3xl border border-emerald-200 bg-emerald-700 p-6 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
               <span className="text-3xl">🎯</span>
-              <h2 className="mt-4 text-xl font-bold text-gray-900">Predictions</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-500">Pick home, draw, or away before each match locks.</p>
+              <h2 className="mt-4 text-xl font-black">Predictions</h2>
+              <p className="mt-2 text-sm leading-6 text-emerald-50">Enter exact scores before kickoff locks each match.</p>
+              <span className="mt-4 inline-flex text-sm font-bold">Next action →</span>
             </Link>
-            <Link href="/leaderboard" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:border-gold/60">
+            <Link href="/leaderboard" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-gold/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
               <span className="text-3xl">🏅</span>
-              <h2 className="mt-4 text-xl font-bold text-gray-900">Leaderboard</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-500">Track global points and country rivals.</p>
+              <h2 className="mt-4 text-xl font-black text-gray-900">Leaderboard</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">Catch up on global points and country rivals.</p>
             </Link>
-            <Link href="/rules" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:border-gold/60">
+            <Link href="/rules" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-gold/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
               <span className="text-3xl">📋</span>
-              <h2 className="mt-4 text-xl font-bold text-gray-900">Rules</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-500">Review scoring, leaderboards, prizes, and tie-breakers.</p>
+              <h2 className="mt-4 text-xl font-black text-gray-900">Rules</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">Review exact-score scoring, locks, and tie-breakers.</p>
             </Link>
             {isAdmin && (
-              <Link href="/admin" className="rounded-3xl border border-gold/30 bg-white p-6 shadow-sm transition hover:border-gold hover:bg-gold/5">
+              <Link href="/admin" className="rounded-3xl border border-gold/30 bg-white p-6 shadow-sm transition hover:border-gold hover:bg-gold/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
                 <span className="text-3xl">🛠️</span>
                 <h2 className="mt-4 text-xl font-bold text-gray-900">Admin Dashboard</h2>
                 <p className="mt-2 text-sm leading-6 text-gray-500">Open match operations and real data readiness tools.</p>

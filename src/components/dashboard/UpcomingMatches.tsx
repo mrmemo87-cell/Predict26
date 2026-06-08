@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { isUserCountryMatch as checkUserCountry } from "@/lib/domain/match-helpers";
+import { getCountryFlag } from "@/lib/domain/countries";
 
 interface MatchRow {
   id: string;
@@ -87,6 +88,7 @@ function StatusBadge({ status, homeScore, awayScore }: { status: string; homeSco
 function TeamLabel({ name, code }: { name: string; code: string | null }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
+      <span className="text-lg" aria-hidden="true">{getCountryFlag(code) ?? "🌍"}</span>
       <span className="truncate font-semibold text-gray-900">{name || "Team TBA"}</span>
       {code && (
         <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
@@ -141,10 +143,10 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
   const hasUserMatches = userMatches.length > 0;
 
   return (
-    <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-8">
+    <section className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-8">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">Match board</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Match board</p>
           <h2 className="mt-1 text-lg font-bold text-gray-900">Upcoming Matches</h2>
         </div>
         <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-bold text-gold">
@@ -208,7 +210,7 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
                   {isPredictable(match.status, match.kickoff_at) && (
                     <Link
                       href={`/predictions?match=${match.id}`}
-                      className="rounded-full border border-gold/50 px-4 py-2 text-xs font-bold text-gold transition hover:bg-gold hover:text-black"
+                      className="rounded-full border border-emerald-700 bg-emerald-700 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     >
                       Predict
                     </Link>

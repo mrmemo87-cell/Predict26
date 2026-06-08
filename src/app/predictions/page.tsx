@@ -58,24 +58,29 @@ export default async function PredictionsPage({
   const now = new Date();
 
   return (
-    <main className="min-h-screen px-4 py-8 sm:py-12">
+    <main className="min-h-screen bg-gray-50 bg-[radial-gradient(circle_at_top_left,rgba(22,163,74,0.10),transparent_30%)] px-4 py-8 sm:py-12">
       <div className="mx-auto w-full max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
-          <Link href="/dashboard" className="text-sm text-gray-400 transition hover:text-gold">← Dashboard</Link>
+          <Link href="/dashboard" className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">← Dashboard</Link>
           <div className="flex items-center gap-3">
-            <Link href="/rules" className="text-sm font-medium text-gray-500 transition hover:text-gold">Rules</Link>
+            <Link href="/rules" className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">Rules</Link>
             <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">
               Predictions
             </div>
           </div>
         </header>
 
-        <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-gold">World Cup 2026</p>
-          <h1 className="text-3xl font-bold text-gray-900 sm:text-5xl">Predict the <span className="gold-text-gradient">exact score</span></h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-500">
+        <section className="mb-8 overflow-hidden rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm sm:p-8">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">World Cup 2026 match center</p>
+          <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">Predict the <span className="gold-text-gradient">exact score</span></h1>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
             Enter the exact final score before kickoff. Each match accepts one prediction per user, and you can update it until the match locks.
           </p>
+          <div className="mt-5 flex flex-wrap gap-2 text-xs font-bold">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">Locks at kickoff</span>
+            <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-gold-dark">Exact score: 5 pts</span>
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-700">Correct result: 2 pts</span>
+          </div>
         </section>
 
         {params.saved && (
@@ -106,7 +111,7 @@ export default async function PredictionsPage({
               <article
                 key={match.id}
                 id={`match-${match.id}`}
-                className={`scroll-mt-6 rounded-3xl border p-4 shadow-sm sm:p-6 ${
+                className={`scroll-mt-6 overflow-hidden rounded-3xl border p-4 shadow-sm transition sm:p-6 ${
                   isHighlighted
                     ? "border-gold bg-gold/10 shadow-lg shadow-gold/10"
                     : "border-gray-200 bg-white"
@@ -114,27 +119,31 @@ export default async function PredictionsPage({
               >
                 <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-gray-500">{formatKickoff(match.kickoff_at)}</p>
-                    <h2 className="mt-2 text-xl font-bold text-gray-900 sm:text-2xl">
+                    <p className="text-xs font-bold uppercase tracking-[0.25em] text-emerald-700">{formatKickoff(match.kickoff_at)}</p>
+                    <h2 className="mt-2 text-xl font-black text-gray-900 sm:text-2xl">
                       {match.home_team} <span className="text-gold">vs</span> {match.away_team}
                     </h2>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-3 py-1">{match.stage || "Group stage"}</span>
+                      <span className="rounded-full bg-gray-100 px-3 py-1">Locks at kickoff</span>
+                    </div>
                     {savedPredictionLabel && (
                       <p className="mt-2 text-sm font-medium text-gray-500">
                         Saved prediction: <span className="text-gray-900">{savedPredictionLabel}</span>
                       </p>
                     )}
                   </div>
-                  <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${locked ? "bg-red-50 text-red-700" : "bg-gold/10 text-gold"}`}>
-                    {locked ? "Prediction locked" : "Open"}
+                  <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${locked ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+                    {locked ? "Locked" : "Open for picks"}
                   </span>
                 </div>
 
                 {locked ? (
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600">
-                    Prediction locked
+                    Prediction locked because kickoff has passed or this match is not currently scheduled.
                   </div>
                 ) : (
-                  <form action={savePrediction} className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                  <form action={savePrediction} className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-end sm:justify-between">
                     <input type="hidden" name="match_id" value={match.id} />
                     <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 sm:flex-1">
                       <label className="min-w-0">
@@ -149,7 +158,7 @@ export default async function PredictionsPage({
                           required
                           defaultValue={savedScore?.home_score ?? ""}
                           aria-label={`${match.home_team} score`}
-                          className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-3 text-center text-xl font-bold text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20 sm:max-w-24"
+                          className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-3 text-center text-2xl font-black text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20 sm:max-w-28"
                         />
                       </label>
                       <span className="pb-3 text-xl font-bold text-gold">-</span>
@@ -165,13 +174,13 @@ export default async function PredictionsPage({
                           required
                           defaultValue={savedScore?.away_score ?? ""}
                           aria-label={`${match.away_team} score`}
-                          className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-3 text-center text-xl font-bold text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20 sm:max-w-24"
+                          className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-3 text-center text-2xl font-black text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20 sm:max-w-28"
                         />
                       </label>
                     </div>
                     <button
                       type="submit"
-                      className="rounded-2xl border border-gold bg-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-gold/20 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-gold/30"
+                      className="rounded-2xl border border-emerald-700 bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     >
                       {savedPredictionLabel ? "Update prediction" : "Save prediction"}
                     </button>

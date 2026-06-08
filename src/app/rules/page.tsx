@@ -16,7 +16,7 @@ const tieBreakers = [
 
 export default function RulesPage() {
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-8 text-gray-900 sm:py-12">
+    <main className="min-h-screen bg-gray-50 bg-[radial-gradient(circle_at_top_left,rgba(22,163,74,0.10),transparent_30%)] px-4 py-8 text-gray-900 sm:py-12">
       <div className="mx-auto w-full max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-3">
@@ -25,42 +25,45 @@ export default function RulesPage() {
           </Link>
           <Link
             href="/login"
-            className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-sm font-semibold text-gold-dark transition hover:border-gold hover:bg-gold/20"
+            className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-sm font-semibold text-gold-dark transition hover:border-gold hover:bg-gold/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
           >
             Sign in
           </Link>
         </header>
 
-        <section className="mb-6 rounded-3xl border border-gold/20 bg-white p-6 shadow-sm sm:p-8">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-gold">
+        <section className="mb-6 rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm sm:p-8">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">
             MVP Rules
           </p>
-          <h1 className="text-3xl font-bold text-gray-900 sm:text-5xl">
+          <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">
             Simple rules for <span className="gold-text-gradient">Predict26</span>
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
             Predict World Cup match scores, earn points when final scores are confirmed,
             and climb the global and country leaderboards.
           </p>
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
+            Predict26 is a friendly score prediction game — no betting, odds, wagers, or casino mechanics.
+          </div>
         </section>
 
         <div className="space-y-6">
           <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold text-gray-900">How predictions work</h2>
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">1. Pick a score</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
                   Enter the final score you think each match will have.
                 </p>
               </div>
-              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">2. Update before kickoff</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
                   You can change your prediction while the match is still open.
                 </p>
               </div>
-              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">3. Lock at kickoff</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
                   Predictions lock at kickoff and cannot be changed after that.
@@ -111,7 +114,7 @@ export default function RulesPage() {
             </ol>
           </section>
 
-          <section className="rounded-3xl border border-gold/20 bg-gold/5 p-6 sm:p-8">
+          <section className="rounded-3xl border border-gold/20 bg-gold/5 p-6 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold text-gray-900">Data disclaimer</h2>
             <p className="mt-4 text-sm leading-6 text-gray-700">
               Schedules, scores, teams, venues, lineups, referees, and live data may update.
