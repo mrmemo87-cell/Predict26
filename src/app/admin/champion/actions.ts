@@ -9,6 +9,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const ADMIN_CHAMPION_PATH = "/admin/champion";
 const DEFAULT_COMPETITION_CODE = "WC2026";
+const DEFAULT_KNOCKOUT_STARTS_AT = "2026-06-28T00:00:00.000Z";
+const DEFAULT_ROUND_OF_16_STARTS_AT = "2026-07-04T00:00:00.000Z";
+const DEFAULT_CHAMPION_PICK_A_DEADLINE = "2026-06-28T00:00:00.000Z";
+const DEFAULT_CHAMPION_PICK_B_DEADLINE = "2026-07-04T00:00:00.000Z";
 
 const optionalString = (value: FormDataEntryValue | null) => {
   if (typeof value !== "string") return null;
@@ -18,6 +22,19 @@ const optionalString = (value: FormDataEntryValue | null) => {
 
 const normalizeCompetitionCode = (value: FormDataEntryValue | null) =>
   (optionalString(value) ?? DEFAULT_COMPETITION_CODE).toUpperCase();
+
+const parseDateTimeInput = (value: FormDataEntryValue | null) => {
+  const raw = optionalString(value);
+  if (!raw) return null;
+
+  const hasTimezone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  const timePart = raw.split("T")[1] ?? "";
+  const hasSeconds = timePart.split(":").length > 2;
+  const normalized = hasTimezone ? raw : `${raw}${hasSeconds ? "" : ":00"}Z`;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
 
 const revalidateChampionPaths = () => {
   revalidatePath("/admin");
@@ -58,6 +75,103 @@ async function getCompetitionId(competitionCode: string) {
   }
 
   return null;
+}
+
+export async function setupChampionPickConfig(formData: FormData) {
+  await requireAdminUser(ADMIN_CHAMPION_PATH);
+
+  const competitionCode = normalizeCompetitionCode(
+    formData.get("competition_code"),
+  );
+  const competitionId = await getCompetitionId(competitionCode);
+  const supabase = createAdminClient();
+
+  const { data: existing, error: readError } = await supabase
+    .from("tournament_prediction_config")
+    .select(
+      "knockout_starts_at, round_of_16_starts_at, champion_pick_a_deadline, champion_pick_b_deadline",
+    )
+    .eq("competition_code", competitionCode)
+    .maybeSingle<{
+      knockout_starts_at: string | null;
+      round_of_16_starts_at: string | null;
+      champion_pick_a_deadline: string | null;
+      champion_pick_b_deadline: string | null;
+    }>();
+
+  if (readError) {
+    console.error("Failed to read Champion Pick configuration", readError);
+    redirectWithStatus({ error: "config_save_failed" });
+  }
+
+  const { error } = await supabase.from("tournament_prediction_config").upsert(
+    {
+      competition_code: competitionCode,
+      competition_id: competitionId,
+      knockout_starts_at:
+        existing?.knockout_starts_at ?? DEFAULT_KNOCKOUT_STARTS_AT,
+      round_of_16_starts_at:
+        existing?.round_of_16_starts_at ?? DEFAULT_ROUND_OF_16_STARTS_AT,
+      champion_pick_a_deadline:
+        existing?.champion_pick_a_deadline ?? DEFAULT_CHAMPION_PICK_A_DEADLINE,
+      champion_pick_b_deadline:
+        existing?.champion_pick_b_deadline ?? DEFAULT_CHAMPION_PICK_B_DEADLINE,
+      champion_picks_enabled: true,
+    },
+    { onConflict: "competition_code" },
+  );
+
+  if (error) {
+    console.error("Failed to set up Champion Pick configuration", error);
+    redirectWithStatus({ error: "config_save_failed" });
+  }
+
+  revalidateChampionPaths();
+  redirectWithStatus({ saved: "config_setup" });
+}
+
+export async function saveChampionPickConfig(formData: FormData) {
+  await requireAdminUser(ADMIN_CHAMPION_PATH);
+
+  const competitionCode = normalizeCompetitionCode(
+    formData.get("competition_code"),
+  );
+  const competitionId = await getCompetitionId(competitionCode);
+  const knockoutStartsAt = parseDateTimeInput(
+    formData.get("knockout_starts_at"),
+  );
+  const roundOf16StartsAt = parseDateTimeInput(
+    formData.get("round_of_16_starts_at"),
+  );
+  const championPickADeadline = parseDateTimeInput(
+    formData.get("champion_pick_a_deadline"),
+  );
+  const championPickBDeadline = parseDateTimeInput(
+    formData.get("champion_pick_b_deadline"),
+  );
+  const championPicksEnabled = formData.get("champion_picks_enabled") === "on";
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("tournament_prediction_config").upsert(
+    {
+      competition_code: competitionCode,
+      competition_id: competitionId,
+      knockout_starts_at: knockoutStartsAt,
+      round_of_16_starts_at: roundOf16StartsAt,
+      champion_pick_a_deadline: championPickADeadline,
+      champion_pick_b_deadline: championPickBDeadline,
+      champion_picks_enabled: championPicksEnabled,
+    },
+    { onConflict: "competition_code" },
+  );
+
+  if (error) {
+    console.error("Failed to save Champion Pick configuration", error);
+    redirectWithStatus({ error: "config_save_failed" });
+  }
+
+  revalidateChampionPaths();
+  redirectWithStatus({ saved: "config" });
 }
 
 export async function saveChampionResultDraft(formData: FormData) {

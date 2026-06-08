@@ -6,8 +6,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 import {
   confirmChampionResult,
+  saveChampionPickConfig,
   saveChampionResultDraft,
   scoreChampionPicks,
+  setupChampionPickConfig,
   withdrawChampionResult,
 } from "./actions";
 
@@ -24,6 +26,17 @@ type SearchParams = Promise<{
   voided?: string;
   points?: string;
 }>;
+
+type TournamentConfigRow = {
+  competition_code: string;
+  competition_id: string | null;
+  knockout_starts_at: string | null;
+  round_of_16_starts_at: string | null;
+  champion_pick_a_deadline: string | null;
+  champion_pick_b_deadline: string | null;
+  champion_picks_enabled: boolean;
+  updated_at: string | null;
+};
 
 type TournamentResultRow = {
   competition_code: string;
@@ -87,6 +100,14 @@ const formatDateTime = (value: string | null | undefined) => {
   }).format(new Date(value));
 };
 
+const formatDateTimeInput = (value: string | null | undefined) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().slice(0, 16);
+};
+
 const formatCount = (value: number) =>
   new Intl.NumberFormat("en").format(value);
 
@@ -122,6 +143,9 @@ const statusMessages: Record<string, string> = {
   confirmed: "Official Champion result confirmed. Run scoring when ready.",
   withdrawn:
     "Champion confirmation withdrawn. Run scoring to void active Champion ledger rows.",
+  config: "Champion Pick configuration saved. No Champion picks were scored.",
+  config_setup:
+    "Champion Pick configuration set up with default WC2026 deadlines and enabled for eligible users.",
 };
 
 const errorMessages: Record<string, string> = {
@@ -130,6 +154,7 @@ const errorMessages: Record<string, string> = {
   withdraw_failed: "Could not withdraw Champion confirmation.",
   scoring_failed: "Could not score Champion picks.",
   missing_champion: "Choose a champion team before confirming the result.",
+  config_save_failed: "Could not save the Champion Pick configuration.",
 };
 
 export default async function AdminChampionPage({
@@ -142,12 +167,20 @@ export default async function AdminChampionPage({
 
   const supabase = createAdminClient();
   const [
+    { data: config },
     { data: result },
     { data: teamRows },
     { data: predictionRows },
     { data: latestScoringRuns },
     { data: activeLedgerRows },
   ] = await Promise.all([
+    supabase
+      .from("tournament_prediction_config")
+      .select(
+        "competition_code, competition_id, knockout_starts_at, round_of_16_starts_at, champion_pick_a_deadline, champion_pick_b_deadline, champion_picks_enabled, updated_at",
+      )
+      .eq("competition_code", COMPETITION_CODE)
+      .maybeSingle<TournamentConfigRow>(),
     supabase
       .from("tournament_results")
       .select(
@@ -209,6 +242,26 @@ export default async function AdminChampionPage({
     a.teamName.localeCompare(b.teamName),
   );
   const predictions = (predictionRows ?? []) as ChampionPredictionRow[];
+  const configRow = config as TournamentConfigRow | null;
+  const configIssues = [
+    !configRow ? "configuration row is missing" : null,
+    configRow && !configRow.champion_picks_enabled
+      ? "Champion picks are disabled"
+      : null,
+    configRow && !configRow.champion_pick_a_deadline
+      ? "Pick A deadline is missing"
+      : null,
+    configRow && !configRow.champion_pick_b_deadline
+      ? "Pick B deadline is missing"
+      : null,
+    configRow && !configRow.knockout_starts_at
+      ? "Pick A join-time cutoff is missing"
+      : null,
+    configRow && !configRow.round_of_16_starts_at
+      ? "Pick B join-time cutoff is missing"
+      : null,
+    teamOptions.length === 0 ? "no active WC2026 teams are available" : null,
+  ].filter(Boolean) as string[];
   const latestRun = ((latestScoringRuns ?? []) as ScoringRunRow[])[0] ?? null;
   const latestRunMetadata = metadataRecord(latestRun?.metadata);
   const championTeamCode = result?.champion_team_code ?? null;
@@ -313,6 +366,151 @@ export default async function AdminChampionPage({
             <p>{errorMessage ?? successMessage}</p>
           </section>
         )}
+
+        <section className="mb-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <form className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+                  Availability setup
+                </p>
+                <h2 className="text-2xl font-black text-gray-900">
+                  Champion Pick deadlines
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500">
+                  These controls only govern whether eligible users can save
+                  Champion Pick A/B. They do not score Champion picks.
+                </p>
+              </div>
+              <span
+                className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${
+                  configIssues.length === 0
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {configIssues.length === 0 ? "Ready" : "Setup needed"}
+              </span>
+            </div>
+
+            <input
+              type="hidden"
+              name="competition_code"
+              value={COMPETITION_CODE}
+            />
+
+            <label className="mt-5 flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700">
+              <input
+                type="checkbox"
+                name="champion_picks_enabled"
+                defaultChecked={configRow?.champion_picks_enabled ?? false}
+                className="h-4 w-4 accent-emerald-700"
+              />
+              Enable Champion Pick saving when deadline and join-time checks
+              pass
+            </label>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-bold text-gray-700">
+                Pick A deadline
+                <input
+                  type="datetime-local"
+                  name="champion_pick_a_deadline"
+                  defaultValue={formatDateTimeInput(
+                    configRow?.champion_pick_a_deadline,
+                  )}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+                />
+              </label>
+              <label className="block text-sm font-bold text-gray-700">
+                Pick B deadline
+                <input
+                  type="datetime-local"
+                  name="champion_pick_b_deadline"
+                  defaultValue={formatDateTimeInput(
+                    configRow?.champion_pick_b_deadline,
+                  )}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+                />
+              </label>
+              <label className="block text-sm font-bold text-gray-700">
+                Pick A join-time cutoff
+                <input
+                  type="datetime-local"
+                  name="knockout_starts_at"
+                  defaultValue={formatDateTimeInput(
+                    configRow?.knockout_starts_at,
+                  )}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+                />
+              </label>
+              <label className="block text-sm font-bold text-gray-700">
+                Pick B join-time cutoff
+                <input
+                  type="datetime-local"
+                  name="round_of_16_starts_at"
+                  defaultValue={formatDateTimeInput(
+                    configRow?.round_of_16_starts_at,
+                  )}
+                  className="mt-2 w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                formAction={saveChampionPickConfig}
+                className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-800"
+              >
+                Save Champion Pick config
+              </button>
+              <button
+                formAction={setupChampionPickConfig}
+                className="rounded-full border border-gold/40 bg-gold/10 px-5 py-3 text-sm font-black text-gold-dark transition hover:border-gold hover:bg-gold/20"
+              >
+                Seed/fix WC2026 defaults
+              </button>
+            </div>
+          </form>
+
+          <aside className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-black text-gray-900">Config health</h2>
+            <dl className="mt-4 space-y-3 text-sm leading-6 text-gray-600">
+              <div>
+                <dt className="font-bold text-gray-900">Config row</dt>
+                <dd>{configRow ? "Present" : "Missing"}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-gray-900">Pick A deadline</dt>
+                <dd>{formatDateTime(configRow?.champion_pick_a_deadline)}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-gray-900">Pick B deadline</dt>
+                <dd>{formatDateTime(configRow?.champion_pick_b_deadline)}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-gray-900">
+                  Active selector teams
+                </dt>
+                <dd>{formatCount(teamOptions.length)}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-gray-900">Updated</dt>
+                <dd>{formatDateTime(configRow?.updated_at)}</dd>
+              </div>
+            </dl>
+            {configIssues.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                <p className="font-black">Setup action recommended</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {configIssues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </aside>
+        </section>
 
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
