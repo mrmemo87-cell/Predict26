@@ -3,7 +3,9 @@ import Link from "next/link";
 const scoringRules = [
   { label: "Exact score", points: "5 points" },
   { label: "Correct result only", points: "2 points" },
-  { label: "Wrong result", points: "0 points" },
+  { label: "Possession leader", points: "1 point" },
+  { label: "Predicted scorers", points: "1 point each, max 4" },
+  { label: "Wrong result or bonus miss", points: "0 points" },
 ];
 
 const tieBreakers = [
@@ -33,14 +35,14 @@ export default function RulesPage() {
 
         <section className="mb-6 rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm sm:p-8">
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">
-            MVP Rules
+            Rules
           </p>
           <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">
             Simple rules for <span className="gold-text-gradient">Predict26</span>
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
-            Predict World Cup match scores, earn points when final scores are confirmed,
-            and climb the global and country leaderboards.
+            Predict World Cup match scores, add optional possession and scorer bonus picks,
+            and climb the global and country leaderboards after results are confirmed.
           </p>
           <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
             Predict26 is a friendly score prediction game — no betting, odds, wagers, or casino mechanics.
@@ -54,19 +56,19 @@ export default function RulesPage() {
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">1. Pick a score</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  Enter the final score you think each match will have.
+                  Enter the final score you think each match will have. Exact score remains the core pick.
                 </p>
               </div>
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">2. Update before kickoff</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  You can change your prediction while the match is still open.
+                  You can change your score and available bonus picks while the match is still open.
                 </p>
               </div>
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
                 <p className="text-sm font-semibold text-gray-900">3. Lock at kickoff</p>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  Predictions lock at kickoff and cannot be changed after that.
+                  Score, possession, and scorer picks lock at kickoff and cannot be changed after that.
                 </p>
               </div>
             </div>
