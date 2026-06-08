@@ -35,18 +35,33 @@ function formatStage(stage: string | null): string {
 function TeamBlock({ name, code }: { name: string; code: string | null }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col items-center rounded-2xl border border-white/70 bg-white/90 px-4 py-5 text-center shadow-sm">
-      <span className="text-4xl" aria-hidden="true">{getCountryFlag(code) ?? "🌍"}</span>
-      <span className="mt-3 max-w-full truncate text-lg font-black text-gray-900 sm:text-2xl">{name || "Team TBA"}</span>
-      {code && <span className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-gray-500">{code}</span>}
+      {getCountryFlag(code) && (
+        <span className="text-4xl" aria-hidden="true">
+          {getCountryFlag(code)}
+        </span>
+      )}
+      <span className="mt-3 max-w-full truncate text-lg font-black text-gray-900 sm:text-2xl">
+        {name || "Team TBA"}
+      </span>
+      {code && (
+        <span className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
+          {code}
+        </span>
+      )}
     </div>
   );
 }
 
-export default function CountryHero({ match, userCountryCode }: CountryHeroProps) {
+export default function CountryHero({
+  match,
+  userCountryCode,
+}: CountryHeroProps) {
   if (!match) {
     return (
       <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-center text-gray-500">No upcoming matches available.</p>
+        <p className="text-center text-gray-500">
+          No upcoming matches available.
+        </p>
       </section>
     );
   }
@@ -76,14 +91,14 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
                   : "border border-emerald-200 bg-emerald-50 text-emerald-800"
               }`}
             >
-              {isUserCountryMatch ? "🏟️ Your country match" : "Next match"}
+              {isUserCountryMatch ? "Your country match" : "Next match"}
             </span>
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.3em] text-gray-500">
               {formatStage(match.stage)}
             </p>
           </div>
           <span className="w-fit rounded-full border border-gray-200 bg-white px-3 py-1 text-sm font-semibold text-gray-600">
-            📍 {venue}
+            {venue}
           </span>
         </div>
 
@@ -97,7 +112,9 @@ export default function CountryHero({ match, userCountryCode }: CountryHeroProps
 
         <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">Kickoff countdown</p>
+            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">
+              Kickoff countdown
+            </p>
             {match.kickoff_at ? (
               <MatchCountdown kickoffAt={match.kickoff_at} />
             ) : (

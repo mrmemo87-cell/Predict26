@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buildFlagLookup,
+  formatFlaggedLabel,
+  resolveCountryFlag,
+} from "@/lib/domain/countries";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import {
   savePossessionPrediction,
@@ -73,6 +78,11 @@ type SquadPlayer = {
   position: string | null;
   teamCode: string;
   teamName: string;
+};
+
+type CountryFlagRow = {
+  code: string | null;
+  flag_emoji: string | null;
 };
 
 type SearchParams = Promise<{
@@ -161,6 +171,7 @@ export default async function PredictionsPage({
     { data: predictions },
     { data: championConfig },
     { data: championPredictions },
+    { data: countryFlagRows },
   ] = await Promise.all([
     fetchUpcomingPredictionMatches(supabase, 20),
     supabase
@@ -179,6 +190,7 @@ export default async function PredictionsPage({
       .select("pick_type, team_code")
       .eq("user_id", user.id)
       .eq("competition_code", "WC2026"),
+    supabase.from("countries").select("code, flag_emoji"),
   ]);
 
   const matchIds = matches.map((match) => match.id);
@@ -229,6 +241,9 @@ export default async function PredictionsPage({
   ]);
 
   const aliases = buildTeamCodeAliasMap(aliasRes.data);
+  const flagLookup = buildFlagLookup(
+    countryFlagRows as CountryFlagRow[] | null,
+  );
 
   const canonicalTeamCodes = [
     ...new Set(
@@ -333,6 +348,7 @@ export default async function PredictionsPage({
         teams.set(row.team_code, {
           teamCode: row.team_code,
           teamName: row.team_name ?? row.team_code,
+          flag: resolveCountryFlag(row.team_code, flagLookup),
         });
         return teams;
       }, new Map())
@@ -527,6 +543,24 @@ export default async function PredictionsPage({
             const savedScorerLabels = savedScorerIds
               .map((playerId) => playersById.get(playerId)?.displayName)
               .filter(Boolean) as string[];
+            const homeLabel = formatFlaggedLabel(
+              match.home_team,
+              match.home_country_code ?? homeCode,
+              flagLookup,
+            );
+            const awayLabel = formatFlaggedLabel(
+              match.away_team,
+              match.away_country_code ?? awayCode,
+              flagLookup,
+            );
+            const homeFlag = resolveCountryFlag(
+              match.home_country_code ?? homeCode,
+              flagLookup,
+            );
+            const awayFlag = resolveCountryFlag(
+              match.away_country_code ?? awayCode,
+              flagLookup,
+            );
 
             return (
               <article
@@ -544,8 +578,15 @@ export default async function PredictionsPage({
                       {formatKickoff(match.kickoff_at)}
                     </p>
                     <h2 className="mt-2 text-xl font-black text-gray-900 sm:text-2xl">
-                      {match.home_team} <span className="text-gold">vs</span>{" "}
-                      {match.away_team}
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        {homeFlag && <span aria-hidden="true">{homeFlag}</span>}
+                        <span className="truncate">{match.home_team}</span>
+                      </span>{" "}
+                      <span className="text-gold">vs</span>{" "}
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        {awayFlag && <span aria-hidden="true">{awayFlag}</span>}
+                        <span className="truncate">{match.away_team}</span>
+                      </span>
                     </h2>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
                       <span className="rounded-full bg-gray-100 px-3 py-1">
@@ -585,7 +626,7 @@ export default async function PredictionsPage({
                     <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 sm:flex-1">
                       <label className="min-w-0">
                         <span className="mb-2 block truncate text-sm font-semibold text-gray-700">
-                          {match.home_team}
+                          {homeLabel}
                         </span>
                         <input
                           type="number"
@@ -605,7 +646,7 @@ export default async function PredictionsPage({
                       </span>
                       <label className="min-w-0">
                         <span className="mb-2 block truncate text-sm font-semibold text-gray-700">
-                          {match.away_team}
+                          {awayLabel}
                         </span>
                         <input
                           type="number"
@@ -647,6 +688,8 @@ export default async function PredictionsPage({
                       matchId={match.id}
                       homeTeamName={match.home_team}
                       awayTeamName={match.away_team}
+                      homeFlag={homeFlag}
+                      awayFlag={awayFlag}
                       homePlayers={homeSquad}
                       awayPlayers={awaySquad}
                       initialHomePlayerIds={savedLineups.home}
@@ -655,8 +698,8 @@ export default async function PredictionsPage({
                     />
                   </div>
                   <p className="mt-3 text-xs text-gray-500">
-                    Saved: {savedLineups.home.length}/11 home ·{" "}
-                    {savedLineups.away.length}/11 away
+                    Saved: {homeLabel} XI {savedLineups.home.length}/11 ·{" "}
+                    {awayLabel} XI {savedLineups.away.length}/11
                   </p>
                 </section>
 
@@ -707,7 +750,11 @@ export default async function PredictionsPage({
                                 required
                                 className="h-3.5 w-3.5 accent-emerald-700"
                               />
-                              <span>{option.label}</span>
+                              <span>
+                                {option.label
+                                  .replace("Home", homeLabel)
+                                  .replace("Away", awayLabel)}
+                              </span>
                             </label>
                           ))}
                         </div>
@@ -715,7 +762,9 @@ export default async function PredictionsPage({
                           type="submit"
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
                         >
-                          Save possession pick
+                          {savedPossession
+                            ? "Update possession pick"
+                            : "Save possession pick"}
                         </button>
                       </form>
                     )}
@@ -768,7 +817,7 @@ export default async function PredictionsPage({
                                 className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
                               >
                                 <option value="">No player</option>
-                                <optgroup label={match.home_team}>
+                                <optgroup label={homeLabel}>
                                   {homeSquad.map((player) => (
                                     <option
                                       key={player.playerId}
@@ -784,7 +833,7 @@ export default async function PredictionsPage({
                                     </option>
                                   ))}
                                 </optgroup>
-                                <optgroup label={match.away_team}>
+                                <optgroup label={awayLabel}>
                                   {awaySquad.map((player) => (
                                     <option
                                       key={player.playerId}
@@ -816,7 +865,9 @@ export default async function PredictionsPage({
                           type="submit"
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
                         >
-                          Save scorer picks
+                          {savedScorerIds.length > 0
+                            ? "Update scorer picks"
+                            : "Save scorer picks"}
                         </button>
                       </form>
                     )}

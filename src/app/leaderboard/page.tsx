@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCountryFlag } from "@/lib/domain/countries";
+import {
+  buildFlagLookup,
+  resolveCountryFlag,
+  getCountryFlag,
+} from "@/lib/domain/countries";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchParams = Promise<{ country?: string }>;
@@ -40,7 +44,10 @@ const normalizeCountryFilter = (country: string | undefined) => {
   return normalized || null;
 };
 
-const getCountryFilterFlags = (countryFilter: string | null, countries: CountryRow[]) => {
+const getCountryFilterFlags = (
+  countryFilter: string | null,
+  countries: CountryRow[],
+) => {
   if (!countryFilter) return new Set<string>();
 
   const flags = new Set<string>();
@@ -48,7 +55,10 @@ const getCountryFilterFlags = (countryFilter: string | null, countries: CountryR
   if (generatedFlag) flags.add(generatedFlag);
 
   countries.forEach((country) => {
-    if (country.code?.trim().toUpperCase() === countryFilter && country.flag_emoji) {
+    if (
+      country.code?.trim().toUpperCase() === countryFilter &&
+      country.flag_emoji
+    ) {
       flags.add(country.flag_emoji);
     }
   });
@@ -72,7 +82,10 @@ const countryCodeMatchesFilter = (
   if (generatedFlag && matchingFlags.has(generatedFlag)) return true;
 
   return countries.some(
-    (country) => country.code?.trim().toUpperCase() === normalizedCode && country.flag_emoji && matchingFlags.has(country.flag_emoji),
+    (country) =>
+      country.code?.trim().toUpperCase() === normalizedCode &&
+      country.flag_emoji &&
+      matchingFlags.has(country.flag_emoji),
   );
 };
 
@@ -102,7 +115,11 @@ const buildLeaderboardRows = (
   });
 };
 
-export default async function LeaderboardPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const params = await searchParams;
   const countryFilter = normalizeCountryFilter(params.country);
   const supabase = await createClient();
@@ -124,16 +141,20 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
     redirect("/onboarding/country");
   }
 
-  const [{ data: profiles }, { data: storedLeaderboardRows }, { data: countries }] = await Promise.all([
+  const [
+    { data: profiles },
+    { data: storedLeaderboardRows },
+    { data: countries },
+  ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, display_name, username, points, correct_predictions, total_predictions, country_code, is_founder, created_at")
+      .select(
+        "id, display_name, username, points, correct_predictions, total_predictions, country_code, is_founder, created_at",
+      )
       .order("points", { ascending: false })
       .order("created_at", { ascending: true })
       .limit(500),
-    supabase
-      .from("leaderboards")
-      .select("user_id, referral_count"),
+    supabase.from("leaderboards").select("user_id, referral_count"),
     supabase
       .from("countries")
       .select("code, name, flag_emoji")
@@ -146,36 +167,73 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       .map((row) => [row.user_id as string, row.referral_count ?? 0]),
   );
   const countryRows = (countries ?? []) as CountryRow[];
-  const matchingCountryFlags = getCountryFilterFlags(countryFilter, countryRows);
-  const leaderboardRows = buildLeaderboardRows((profiles ?? []) as LeaderboardProfile[], referralCounts);
+  const flagLookup = buildFlagLookup(countryRows);
+  const matchingCountryFlags = getCountryFilterFlags(
+    countryFilter,
+    countryRows,
+  );
+  const leaderboardRows = buildLeaderboardRows(
+    (profiles ?? []) as LeaderboardProfile[],
+    referralCounts,
+  );
   const displayedRows = leaderboardRows
-    .filter((row) => countryCodeMatchesFilter(row.player.country_code, countryFilter, matchingCountryFlags, countryRows))
+    .filter((row) =>
+      countryCodeMatchesFilter(
+        row.player.country_code,
+        countryFilter,
+        matchingCountryFlags,
+        countryRows,
+      ),
+    )
     .slice(0, 50);
-  const title = countryFilter ? `${countryFilter} leaderboard` : "Global leaderboard";
+  const title = countryFilter
+    ? `${countryFilter} leaderboard`
+    : "Global leaderboard";
 
   return (
     <main className="min-h-screen bg-gray-50 bg-[radial-gradient(circle_at_top_left,rgba(22,163,74,0.10),transparent_30%)] px-4 py-8 sm:py-12">
       <div className="mx-auto w-full max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
-          <Link href="/dashboard" className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">← Dashboard</Link>
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+          >
+            ← Dashboard
+          </Link>
           <div className="flex items-center gap-3">
-            <Link href="/rules" className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">Rules</Link>
-            <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">Leaderboard</div>
+            <Link
+              href="/rules"
+              className="text-sm font-medium text-gray-500 transition hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+            >
+              Rules
+            </Link>
+            <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">
+              Leaderboard
+            </div>
           </div>
         </header>
 
         <section className="mb-6 rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm sm:p-8">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">Top players</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">
+            Top players
+          </p>
           <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">
-            {countryFilter ? countryFilter : "Global"} <span className="gold-text-gradient">leaderboard</span>
+            {countryFilter ? countryFilter : "Global"}{" "}
+            <span className="gold-text-gradient">leaderboard</span>
           </h1>
           <p className="mt-3 text-sm text-gray-500">
             {countryFilter
               ? "Country ranks are calculated against players representing this country."
               : "Global ranks are calculated from the latest player points."}
           </p>
-          <form action="/leaderboard" className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label htmlFor="country" className="text-sm font-semibold text-gray-700">
+          <form
+            action="/leaderboard"
+            className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center"
+          >
+            <label
+              htmlFor="country"
+              className="text-sm font-semibold text-gray-700"
+            >
               Country
             </label>
             <select
@@ -186,18 +244,28 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
             >
               <option value="">Global leaderboard</option>
               {countryRows.map((country) => (
-                <option key={country.code ?? country.name} value={country.code ?? ""}>
-                  {country.flag_emoji ? `${country.flag_emoji} ` : ""}{country.name ?? country.code}
+                <option
+                  key={country.code ?? country.name}
+                  value={country.code ?? ""}
+                >
+                  {country.flag_emoji ? `${country.flag_emoji} ` : ""}
+                  {country.name ?? country.code}
                 </option>
               ))}
             </select>
-            <button type="submit" className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+            <button
+              type="submit"
+              className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            >
               View ranks
             </button>
           </form>
         </section>
 
-        <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm" aria-label={title}>
+        <div
+          className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm"
+          aria-label={title}
+        >
           <div className="grid grid-cols-[52px_minmax(0,1fr)_78px] gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-gray-500 sm:grid-cols-[82px_minmax(0,1fr)_260px_110px] sm:px-5">
             <span>Rank</span>
             <span>Player</span>
@@ -209,46 +277,77 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
             const isCurrentUser = row.player.id === user.id;
             const correct = row.player.correct_predictions ?? 0;
             const total = row.player.total_predictions ?? 0;
-            const accuracy = total > 0 ? `${Math.round((correct / total) * 100)}%` : "—";
-            const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
+            const accuracy =
+              total > 0 ? `${Math.round((correct / total) * 100)}%` : "—";
+            const medal =
+              rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
 
             return (
               <div
                 key={row.player.id}
                 className={`grid grid-cols-[52px_minmax(0,1fr)_78px] items-center gap-2 border-b p-4 last:border-b-0 sm:grid-cols-[82px_minmax(0,1fr)_260px_110px] sm:p-5 ${
-                  isCurrentUser ? "border-gold/40 bg-gold/10 ring-1 ring-inset ring-gold/30" : "border-gray-200"
+                  isCurrentUser
+                    ? "border-gold/40 bg-gold/10 ring-1 ring-inset ring-gold/30"
+                    : "border-gray-200"
                 }`}
               >
-                <div className={`flex h-10 w-10 shrink-0 sm:h-12 sm:w-12 items-center justify-center rounded-2xl font-black ${rank <= 3 ? "bg-gold/15 text-gold-dark" : "bg-emerald-50 text-emerald-800"}`}>
+                <div
+                  className={`flex h-10 w-10 shrink-0 sm:h-12 sm:w-12 items-center justify-center rounded-2xl font-black ${rank <= 3 ? "bg-gold/15 text-gold-dark" : "bg-emerald-50 text-emerald-800"}`}
+                >
                   {medal ?? rank}
                 </div>
                 <div className="min-w-0">
                   <p className="truncate font-black text-gray-900">
-                    {row.player.display_name || row.player.username || "Player"} {row.player.is_founder ? "🏅" : ""}
-                    {isCurrentUser ? <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">You</span> : null}
+                    {row.player.display_name || row.player.username || "Player"}{" "}
+                    {row.player.is_founder ? "🏅" : ""}
+                    {isCurrentUser ? (
+                      <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">
+                        You
+                      </span>
+                    ) : null}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    {row.player.country_code ?? "—"} · Global #{row.globalRank} · Country #{row.countryRank} · Referrals {row.referralCount}
+                    {resolveCountryFlag(row.player.country_code, flagLookup)
+                      ? `${resolveCountryFlag(row.player.country_code, flagLookup)} `
+                      : ""}
+                    {row.player.country_code ?? "—"} · Global #{row.globalRank}{" "}
+                    · Country #{row.countryRank} · Referrals {row.referralCount}
                   </p>
                 </div>
                 <div className="hidden grid-cols-3 gap-2 sm:grid">
                   <div className="rounded-2xl bg-gray-50 px-3 py-2 text-center">
-                    <p className="text-sm font-black text-gray-900">{correct}</p>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Correct</p>
+                    <p className="text-sm font-black text-gray-900">
+                      {correct}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      Correct
+                    </p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 px-3 py-2 text-center">
                     <p className="text-sm font-black text-gray-900">{total}</p>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Scored</p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      Scored
+                    </p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 px-3 py-2 text-center">
-                    <p className="text-sm font-black text-emerald-700">{accuracy}</p>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Accuracy</p>
+                    <p className="text-sm font-black text-emerald-700">
+                      {accuracy}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      Accuracy
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-xl font-black gold-text-gradient">{row.player.points ?? 0}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500">pts</p>
-                  <p className="mt-1 text-xs text-gray-500 sm:hidden">{correct}/{total} · {accuracy}</p>
+                  <p className="text-xl font-black gold-text-gradient">
+                    {row.player.points ?? 0}
+                  </p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500">
+                    pts
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 sm:hidden">
+                    {correct}/{total} · {accuracy}
+                  </p>
                 </div>
               </div>
             );

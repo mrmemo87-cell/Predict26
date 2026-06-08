@@ -18,6 +18,8 @@ type LineupModalProps = {
   matchId: string;
   homeTeamName: string;
   awayTeamName: string;
+  homeFlag: string | null;
+  awayFlag: string | null;
   homePlayers: LineupPlayer[];
   awayPlayers: LineupPlayer[];
   initialHomePlayerIds: string[];
@@ -177,6 +179,12 @@ export default function LineupPredictionModal(props: LineupModalProps) {
     props.homePlayers.length > 0 && props.awayPlayers.length > 0;
   const currentTeamName =
     activeSide === "home" ? props.homeTeamName : props.awayTeamName;
+  const currentFlag = activeSide === "home" ? props.homeFlag : props.awayFlag;
+  const hasSavedCurrentXi =
+    (activeSide === "home"
+      ? props.initialHomePlayerIds
+      : props.initialAwayPlayerIds
+    ).length > 0;
 
   const togglePlayer = (playerId: string) => {
     setError(null);
@@ -239,7 +247,14 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                   Starting XI prediction
                 </p>
                 <h3 className="mt-1 text-xl font-black text-gray-900">
-                  {props.homeTeamName} vs {props.awayTeamName}
+                  {props.homeFlag && (
+                    <span aria-hidden="true">{props.homeFlag}</span>
+                  )}{" "}
+                  {props.homeTeamName} vs{" "}
+                  {props.awayFlag && (
+                    <span aria-hidden="true">{props.awayFlag}</span>
+                  )}{" "}
+                  {props.awayTeamName}
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
                   Click players to add or remove them from a simple pitch
@@ -267,6 +282,12 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                     }}
                     className={`rounded-xl px-3 py-2 transition ${activeSide === side ? "bg-white text-emerald-800 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
                   >
+                    {side === "home" && props.homeFlag
+                      ? `${props.homeFlag} `
+                      : ""}
+                    {side === "away" && props.awayFlag
+                      ? `${props.awayFlag} `
+                      : ""}
                     {side === "home" ? props.homeTeamName : props.awayTeamName}{" "}
                     XI · {(side === "home" ? homeIds : awayIds).length}/
                     {LINEUP_SIZE}
@@ -275,12 +296,15 @@ export default function LineupPredictionModal(props: LineupModalProps) {
               </div>
             </div>
 
-            <div className="grid flex-1 gap-5 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[1fr_1.05fr]">
-              <div>
+            <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] lg:overflow-hidden">
+              <div className="lg:sticky lg:top-0 lg:self-start">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-lg font-black text-gray-900">
-                      {currentTeamName}
+                    <h4 className="flex min-w-0 items-center gap-2 text-lg font-black text-gray-900">
+                      {currentFlag && (
+                        <span aria-hidden="true">{currentFlag}</span>
+                      )}
+                      <span className="truncate">{currentTeamName}</span>
                     </h4>
                     <p className="text-sm text-gray-500">
                       Selected {selectedIds.length}/{LINEUP_SIZE}
@@ -295,7 +319,7 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                 <PitchPreview players={selectedPlayers} />
               </div>
 
-              <div className="rounded-3xl border border-gray-200 bg-gray-50 p-4">
+              <div className="min-h-0 rounded-3xl border border-gray-200 bg-gray-50 p-4 lg:max-h-[calc(92vh-15rem)] lg:overflow-y-auto">
                 <PlayerPicker
                   players={currentPlayers}
                   selectedIds={selectedIdSet}
@@ -314,7 +338,11 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                     disabled={isPending || selectedIds.length !== LINEUP_SIZE}
                     className="mt-4 w-full rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
-                    {isPending ? "Saving..." : `Save ${currentTeamName} XI`}
+                    {isPending
+                      ? "Saving..."
+                      : hasSavedCurrentXi
+                        ? "Update XI"
+                        : "Save XI"}
                   </button>
                 )}
               </div>

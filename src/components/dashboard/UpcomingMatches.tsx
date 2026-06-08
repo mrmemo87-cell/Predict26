@@ -55,10 +55,21 @@ function formatStage(stage: string | null): string {
 }
 
 function formatStatus(status: string): string {
-  return status.replace(/[_-]/g, " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
+  return status
+    .replace(/[_-]/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-function StatusBadge({ status, homeScore, awayScore }: { status: string; homeScore?: number | null; awayScore?: number | null }) {
+function StatusBadge({
+  status,
+  homeScore,
+  awayScore,
+}: {
+  status: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+}) {
   const s = status.toLowerCase();
 
   if (s === "live" || s === "in_progress") {
@@ -70,7 +81,10 @@ function StatusBadge({ status, homeScore, awayScore }: { status: string; homeSco
   }
 
   if (s === "finished" || s === "completed") {
-    const score = homeScore != null && awayScore != null ? `${homeScore} - ${awayScore}` : "-";
+    const score =
+      homeScore != null && awayScore != null
+        ? `${homeScore} - ${awayScore}`
+        : "-";
     return (
       <span className="rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
         {score}
@@ -88,8 +102,14 @@ function StatusBadge({ status, homeScore, awayScore }: { status: string; homeSco
 function TeamLabel({ name, code }: { name: string; code: string | null }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className="text-lg" aria-hidden="true">{getCountryFlag(code) ?? "🌍"}</span>
-      <span className="truncate font-semibold text-gray-900">{name || "Team TBA"}</span>
+      {getCountryFlag(code) && (
+        <span className="text-lg" aria-hidden="true">
+          {getCountryFlag(code)}
+        </span>
+      )}
+      <span className="truncate font-semibold text-gray-900">
+        {name || "Team TBA"}
+      </span>
       {code && (
         <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
           {code}
@@ -106,7 +126,10 @@ function isPredictable(status: string, kickoffAt: string | null): boolean {
   return new Date(kickoffAt).getTime() > Date.now();
 }
 
-export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMatchesProps) {
+export default function UpcomingMatches({
+  matches,
+  userCountryCode,
+}: UpcomingMatchesProps) {
   // Separate user-country matches and others
   const userMatches: MatchRow[] = [];
   const otherMatches: MatchRow[] = [];
@@ -134,8 +157,12 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
   if (sortedMatches.length === 0) {
     return (
       <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-        <h2 className="mb-4 text-lg font-bold text-gray-900">Upcoming Matches</h2>
-        <p className="text-center text-gray-500">No upcoming matches scheduled.</p>
+        <h2 className="mb-4 text-lg font-bold text-gray-900">
+          Upcoming Matches
+        </h2>
+        <p className="text-center text-gray-500">
+          No upcoming matches scheduled.
+        </p>
       </section>
     );
   }
@@ -146,8 +173,12 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
     <section className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-8">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Match board</p>
-          <h2 className="mt-1 text-lg font-bold text-gray-900">Upcoming Matches</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">
+            Match board
+          </p>
+          <h2 className="mt-1 text-lg font-bold text-gray-900">
+            Upcoming Matches
+          </h2>
         </div>
         <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-bold text-gold">
           {sortedMatches.length} matches
@@ -156,7 +187,8 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
 
       {userCountryCode && !hasUserMatches && (
         <div className="mb-4 rounded-xl border border-gold/30 bg-gold/5 p-3 text-sm text-gray-600">
-          No matches for your country yet. Follow the full World Cup schedule below.
+          No matches for your country yet. Follow the full World Cup schedule
+          below.
         </div>
       )}
 
@@ -186,12 +218,18 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-col gap-2 text-sm sm:text-base">
-                      <TeamLabel name={match.home_team} code={match.home_country_code} />
+                      <TeamLabel
+                        name={match.home_team}
+                        code={match.home_country_code}
+                      />
                       <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.25em] text-gold/80">
                         <span className="h-px w-6 bg-gold/40" />
                         vs
                       </div>
-                      <TeamLabel name={match.away_team} code={match.away_country_code} />
+                      <TeamLabel
+                        name={match.away_team}
+                        code={match.away_country_code}
+                      />
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -206,7 +244,11 @@ export default function UpcomingMatches({ matches, userCountryCode }: UpcomingMa
                       Your country match
                     </span>
                   )}
-                  <StatusBadge status={match.status} homeScore={match.home_score} awayScore={match.away_score} />
+                  <StatusBadge
+                    status={match.status}
+                    homeScore={match.home_score}
+                    awayScore={match.away_score}
+                  />
                   {isPredictable(match.status, match.kickoff_at) && (
                     <Link
                       href={`/predictions?match=${match.id}`}

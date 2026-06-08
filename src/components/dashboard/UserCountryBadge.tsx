@@ -6,7 +6,11 @@ interface UserCountryBadgeProps {
   countryCode: string | null;
 }
 
-export default function UserCountryBadge({ flagEmoji, countryName, countryCode }: UserCountryBadgeProps) {
+export default function UserCountryBadge({
+  flagEmoji,
+  countryName,
+  countryCode,
+}: UserCountryBadgeProps) {
   if (!countryCode) {
     return (
       <Link
@@ -23,7 +27,7 @@ export default function UserCountryBadge({ flagEmoji, countryName, countryCode }
       className="inline-flex max-w-[11rem] items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-800 sm:max-w-xs"
       title={countryName ?? countryCode}
     >
-      <span className="shrink-0 text-lg">{flagEmoji ?? "🌍"}</span>
+      {flagEmoji && <span className="shrink-0 text-lg">{flagEmoji}</span>}
       <span className="truncate">{countryName ?? countryCode}</span>
     </div>
   );
