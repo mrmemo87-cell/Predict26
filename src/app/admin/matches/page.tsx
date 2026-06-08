@@ -46,6 +46,22 @@ type MatchScoringSummary = {
   pointsApplied: number;
 };
 
+type MatchScoringRunRow = {
+  match_id: string | null;
+  categories_completed: string[] | null;
+  categories_skipped: unknown;
+  status: string | null;
+  finished_at: string | null;
+  metadata: unknown;
+};
+
+type MatchScoringRunSummary = {
+  completed: string[];
+  skipped: Array<{ category: string; reason: string }>;
+  status: string;
+  finishedAt: string | null;
+};
+
 type PredictionScoringRow = {
   match_id: string | null;
   points_awarded: number | null;
@@ -120,6 +136,14 @@ const statusLabel = (status: string | null | undefined) =>
 const readinessMetadata = (readiness: BonusReadinessDiagnostics | undefined) =>
   readiness?.metadata ?? {};
 
+const metadataRecord = (metadata: unknown): Record<string, unknown> => {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    return metadata as Record<string, unknown>;
+  }
+
+  return {};
+};
+
 const readinessStatuses = (readiness: BonusReadinessDiagnostics | undefined) => {
   const metadata = readinessMetadata(readiness);
   const statuses = metadata.readiness_statuses;
@@ -137,6 +161,74 @@ const statusBadgeClasses = (ready: boolean, status: string | null | undefined) =
   if (!status || status === "unreviewed") return "border-gray-200 bg-white text-gray-500";
   return "border-rose-200 bg-rose-50 text-rose-700";
 };
+
+const scoringCategoryLabel = (category: string) => {
+  const labels: Record<string, string> = {
+    match_exact_result: "Exact result",
+    match_possession: "Possession",
+    match_scorer: "Scorers",
+    match_lineup_home: "Home lineup",
+    match_lineup_away: "Away lineup",
+  };
+
+  return labels[category] ?? statusLabel(category);
+};
+
+const scoringRunStatusClasses = (status: string) => {
+  if (status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "partial") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "failed") return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-gray-200 bg-white text-gray-500";
+};
+
+const normalizeSkippedCategories = (categoriesSkipped: unknown) =>
+  Object.entries(metadataRecord(categoriesSkipped)).map(([category, value]) => {
+    const details = metadataRecord(value);
+    const reason = typeof details.reason === "string" ? details.reason : "skipped";
+
+    return { category, reason };
+  });
+
+function LatestScoringRunSummary({
+  summary,
+}: {
+  summary: MatchScoringRunSummary | undefined;
+}) {
+  if (!summary) {
+    return (
+      <p className="mt-2 text-xs font-semibold text-gray-500">
+        No scoring run recorded yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded-full border px-2 py-1 font-bold uppercase tracking-[0.14em] ${scoringRunStatusClasses(summary.status)}`}>
+          {statusLabel(summary.status)} scoring run
+        </span>
+        {summary.finishedAt && (
+          <span className="font-semibold text-gray-500">
+            {formatKickoff(summary.finishedAt)}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {summary.completed.map((category) => (
+          <span key={category} className="rounded-full border border-emerald-200 bg-white px-2 py-1 font-semibold text-emerald-700">
+            ✓ {scoringCategoryLabel(category)}
+          </span>
+        ))}
+        {summary.skipped.map((skip) => (
+          <span key={skip.category} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
+            Skipped {scoringCategoryLabel(skip.category)}: {statusLabel(skip.reason)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type BonusReadinessItem = {
   category: BonusReadinessCategory;
@@ -199,7 +291,7 @@ function BonusDataReadinessPanel({
     <details className="mt-3 rounded-2xl border border-gray-200 bg-white p-3 text-sm" open={false}>
       <summary className="cursor-pointer list-none font-bold text-gray-800">
         <span>Bonus Data Readiness</span>
-        <span className="ml-2 text-xs font-semibold text-gray-500">diagnostic only · no bonus points</span>
+        <span className="ml-2 text-xs font-semibold text-gray-500">controls bonus scoring eligibility</span>
       </summary>
       <div className="mt-3 grid gap-2 lg:grid-cols-2">
         {items.map((item) => (
@@ -294,12 +386,26 @@ export default async function AdminMatchManagerPage({
   const matchRows = (matches ?? []) as unknown as MatchRow[];
   const flagLookup = buildFlagLookup(countries);
   const matchIds = matchRows.map((match) => match.id);
-  const [{ data: predictionScoringRows }, bonusReadinessByMatchId] = await Promise.all([
+  const [
+    { data: predictionScoringRows },
+    { data: scoringRunRows },
+    bonusReadinessByMatchId,
+  ] = await Promise.all([
     matchIds.length > 0
       ? supabase
           .from("predictions")
           .select("match_id, points_awarded, result_points_applied")
           .in("match_id", matchIds)
+      : Promise.resolve({ data: [] }),
+    matchIds.length > 0
+      ? supabase
+          .from("scoring_runs")
+          .select("match_id, categories_completed, categories_skipped, status, finished_at, metadata")
+          .eq("scope_type", "match")
+          .eq("source", "score_finished_match")
+          .in("match_id", matchIds)
+          .order("finished_at", { ascending: false, nullsFirst: false })
+          .order("started_at", { ascending: false })
       : Promise.resolve({ data: [] }),
     getMatchBonusReadinessMap(matchIds),
   ]);
@@ -322,6 +428,20 @@ export default async function AdminMatchManagerPage({
 
     summaries[prediction.match_id] = summary;
     return summaries;
+  }, {});
+  const latestScoringRuns = ((scoringRunRows ?? []) as MatchScoringRunRow[]).reduce<
+    Record<string, MatchScoringRunSummary>
+  >((runsByMatchId, run) => {
+    if (!run.match_id || runsByMatchId[run.match_id]) return runsByMatchId;
+
+    runsByMatchId[run.match_id] = {
+      completed: run.categories_completed ?? [],
+      skipped: normalizeSkippedCategories(run.categories_skipped),
+      status: run.status ?? "started",
+      finishedAt: run.finished_at,
+    };
+
+    return runsByMatchId;
   }, {});
   const reportRows = (reports ?? []) as unknown as ReportRow[];
   const editingMatch =
@@ -379,7 +499,7 @@ export default async function AdminMatchManagerPage({
         )}
         {params.bonus_readiness_saved && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
-            Bonus data readiness saved. No bonus points were awarded.
+            Bonus data readiness saved. Future scoring runs will use the updated eligibility state.
           </div>
         )}
         {params.already_scored && (
@@ -461,10 +581,13 @@ export default async function AdminMatchManagerPage({
                       {scoringSummary.pointsApplied} total
                     </p>
                     {match.status === "finished" && (
-                      <BonusDataReadinessPanel
-                        matchId={match.id}
-                        readiness={bonusReadinessByMatchId[match.id]}
-                      />
+                      <>
+                        <LatestScoringRunSummary summary={latestScoringRuns[match.id]} />
+                        <BonusDataReadinessPanel
+                          matchId={match.id}
+                          readiness={bonusReadinessByMatchId[match.id]}
+                        />
+                      </>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
