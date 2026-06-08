@@ -1,288 +1,348 @@
 import CountdownTimer from "@/components/CountdownTimer";
 
+const valueCards = [
+  {
+    icon: "⏱️",
+    title: "Catch up fast",
+    body: "See what matters first: upcoming fixtures, kickoff timing, and the predictions you still need to make.",
+  },
+  {
+    icon: "⚽",
+    title: "Predict in seconds",
+    body: "Enter exact scores match by match. No noisy feeds, no complicated forms, and no betting slips.",
+  },
+  {
+    icon: "🏆",
+    title: "Track your rank",
+    body: "Follow your global leaderboard position as finished matches turn predictions into points.",
+  },
+  {
+    icon: "🌍",
+    title: "Represent your country",
+    body: "Choose your country and compare progress on country leaderboards throughout the tournament.",
+  },
+];
+
+const steps = [
+  {
+    title: "Choose your country",
+    body: "Join with Google, pick the nation you want to represent, and get your tournament hub ready.",
+  },
+  {
+    title: "Predict exact scores",
+    body: "Add home and away scores before kickoff. Every match locks automatically once it starts.",
+  },
+  {
+    title: "Score points after matches finish",
+    body: "Earn 5 points for an exact score, 2 for the correct result, and 0 for a miss.",
+  },
+];
+
+const scoringRules = [
+  { label: "Exact score", points: "5", detail: "Perfect home and away score" },
+  { label: "Correct result", points: "2", detail: "Right winner or draw" },
+  { label: "Wrong prediction", points: "0", detail: "Result does not match" },
+];
+
+const previewMatches = [
+  {
+    stage: "Group stage",
+    kickoff: "Fri · 18:00",
+    home: "Mexico",
+    homeFlag: "🇲🇽",
+    away: "South Africa",
+    awayFlag: "🇿🇦",
+  },
+  {
+    stage: "Group stage",
+    kickoff: "Sat · 21:00",
+    home: "United States",
+    homeFlag: "🇺🇸",
+    away: "Japan",
+    awayFlag: "🇯🇵",
+  },
+  {
+    stage: "Group stage",
+    kickoff: "Sun · 16:00",
+    home: "Brazil",
+    homeFlag: "🇧🇷",
+    away: "France",
+    awayFlag: "🇫🇷",
+  },
+];
+
+const glanceItems = [
+  "Next match",
+  "Pending predictions",
+  "Points",
+  "Country rank",
+  "Global rank",
+];
+
+const focusLinkClass =
+  "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-300 focus-visible:ring-offset-2";
+
 export default function Home() {
   return (
-    <main className="flex-1">
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-20 overflow-hidden">
-        {/* Background gradient effects */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(212,175,55,0.08)_0%,_transparent_60%)]" />
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-gold/5 rounded-full blur-3xl" />
+    <main className="flex-1 bg-[#f7faf8] text-gray-950">
+      <section className="relative overflow-hidden px-4 py-16 sm:py-20 lg:py-24">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(22,163,74,0.16),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.96),_rgba(236,253,245,0.74))]" />
+        <div className="absolute inset-x-0 top-10 h-72 bg-[linear-gradient(90deg,_rgba(22,101,52,0.08)_1px,_transparent_1px),linear-gradient(0deg,_rgba(22,101,52,0.08)_1px,_transparent_1px)] bg-[size:72px_72px] opacity-70" />
+        <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/85 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              World Cup prediction hub
+            </div>
 
-        <div className="relative z-10 text-center max-w-4xl mx-auto">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gold/30 bg-gold/5 mb-8">
-            <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-            <span className="text-sm text-gold font-medium">Launching Soon</span>
-          </div>
+            <h1 className="max-w-4xl text-4xl font-black leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-7xl">
+              Predict World Cup scores in seconds
+            </h1>
 
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold leading-tight mb-6">
-            Predict the{" "}
-            <span className="gold-text-gradient">World Cup 2026</span>
-            <br />
-            Win Real Prizes
-          </h1>
-
-          <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-12">
-            Compete with friends, represent your country, climb the leaderboard,
-            and win cash prizes. The ultimate football prediction experience.
-          </p>
-
-          {/* Countdown */}
-          <div className="mb-12">
-            <p className="text-sm text-gray-500 uppercase tracking-widest mb-4">
-              Kickoff in
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-gray-700 sm:text-xl">
+              Follow upcoming matches, submit exact-score predictions, and climb global and country leaderboards — without the noise.
             </p>
-            <CountdownTimer />
-          </div>
 
-          {/* CTA */}
-          <a
-            href="/login"
-            className="inline-flex items-center gap-2 gold-gradient text-black font-bold px-8 py-4 rounded-full text-lg hover:scale-105 transition-transform animate-pulse-gold"
-          >
-            🏆 Start Predicting
-          </a>
-
-          <p className="text-sm text-gray-500 mt-4">
-            Free to play • No credit card required
-          </p>
-        </div>
-
-        {/* Scroll indicator */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
-          <svg className="w-6 h-6 text-gold/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-          </svg>
-        </div>
-      </section>
-
-      {/* Prize Pool Section */}
-      <section className="py-20 md:py-32 px-4" id="prizes">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4">
-              Prize Pool
-            </h2>
-            <p className="text-gray-400 text-lg">Real prizes for real predictions</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {/* 2nd Place */}
-            <div className="order-2 md:order-1 bg-surface border border-surface-border rounded-2xl p-8 text-center hover:border-gray-500 transition-colors md:mt-8">
-              <div className="text-4xl mb-4">🥈</div>
-              <h3 className="text-xl font-bold text-gray-300 mb-2">2nd Place</h3>
-              <p className="text-3xl font-bold text-white">$100</p>
-            </div>
-
-            {/* 1st Place */}
-            <div className="order-1 md:order-2 bg-surface border-2 border-gold/50 rounded-2xl p-8 text-center relative animate-pulse-gold">
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gold text-black text-xs font-bold px-3 py-1 rounded-full">
-                GRAND PRIZE
-              </div>
-              <div className="text-5xl mb-4 animate-float">🥇</div>
-              <h3 className="text-xl font-bold gold-text-gradient mb-2">1st Place</h3>
-              <p className="text-4xl font-bold gold-text-gradient">$300</p>
-            </div>
-
-            {/* 3rd Place */}
-            <div className="order-3 bg-surface border border-surface-border rounded-2xl p-8 text-center hover:border-gray-500 transition-colors md:mt-8">
-              <div className="text-4xl mb-4">🥉</div>
-              <h3 className="text-xl font-bold text-gray-300 mb-2">3rd Place</h3>
-              <p className="text-3xl font-bold text-white">$50</p>
-            </div>
-          </div>
-
-          <p className="text-center text-gray-500 mt-12 text-sm">
-            Total Prize Pool: <span className="text-gold font-bold">$450</span> • More prizes added as community grows
-          </p>
-        </div>
-      </section>
-
-      {/* Founder Badge Section */}
-      <section className="py-20 md:py-32 px-4 bg-surface/50">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
-            {/* Badge Visual */}
-            <div className="flex-shrink-0">
-              <div className="relative w-48 h-48 md:w-64 md:h-64">
-                <div className="absolute inset-0 gold-gradient rounded-full opacity-20 blur-2xl animate-pulse" />
-                <div className="relative w-full h-full rounded-full border-4 border-gold/50 bg-surface flex items-center justify-center animate-float">
-                  <div className="text-center">
-                    <div className="text-5xl md:text-6xl mb-2">🏅</div>
-                    <p className="text-xs md:text-sm font-bold text-gold uppercase tracking-wider">Founder</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="text-center lg:text-left">
-              <h2 className="text-3xl md:text-5xl font-bold mb-6">
-                Exclusive <span className="gold-text-gradient">Founder Badge</span>
-              </h2>
-              <p className="text-gray-400 text-lg mb-6 max-w-lg">
-                Be among the first 1,000 members to join and earn the exclusive Founder Badge.
-                A permanent symbol of your early support that will never be available again.
-              </p>
-              <ul className="space-y-3 text-left inline-block">
-                <li className="flex items-center gap-3">
-                  <span className="text-gold">✓</span>
-                  <span className="text-gray-300">Permanent profile badge</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <span className="text-gold">✓</span>
-                  <span className="text-gray-300">Priority access to new features</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <span className="text-gold">✓</span>
-                  <span className="text-gray-300">Exclusive Founder leaderboard</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <span className="text-gold">✓</span>
-                  <span className="text-gray-300">Limited to first 1,000 members</span>
-                </li>
-              </ul>
-
-              <div className="mt-8">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-gold/10 border border-gold/30 rounded-full">
-                  <span className="text-gold font-bold text-sm">🔥 Spots filling fast</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Country Battle Section */}
-      <section className="py-20 md:py-32 px-4" id="countries">
-        <div className="max-w-6xl mx-auto text-center">
-          <h2 className="text-3xl md:text-5xl font-bold mb-4">
-            Country <span className="gold-text-gradient">Battle</span>
-          </h2>
-          <p className="text-gray-400 text-lg mb-16 max-w-2xl mx-auto">
-            Represent your nation. Every correct prediction earns points for your country.
-            Which nation will dominate the leaderboard?
-          </p>
-
-          {/* Country Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-12">
-            {[
-              { flag: "🇧🇷", name: "Brazil" },
-              { flag: "🇦🇷", name: "Argentina" },
-              { flag: "🇫🇷", name: "France" },
-              { flag: "🇩🇪", name: "Germany" },
-              { flag: "🇪🇸", name: "Spain" },
-              { flag: "🇬🇧", name: "England" },
-              { flag: "🇵🇹", name: "Portugal" },
-              { flag: "🇳🇱", name: "Netherlands" },
-              { flag: "🇮🇹", name: "Italy" },
-              { flag: "🇺🇸", name: "USA" },
-              { flag: "🇲🇽", name: "Mexico" },
-              { flag: "🇯🇵", name: "Japan" },
-            ].map((country) => (
-              <div
-                key={country.name}
-                className="bg-surface border border-surface-border rounded-xl p-4 hover:border-gold/50 transition-colors group cursor-pointer"
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <a
+                href="/login"
+                className={`${focusLinkClass} inline-flex items-center justify-center rounded-full bg-emerald-700 px-7 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
               >
-                <div className="text-3xl md:text-4xl mb-2 group-hover:scale-110 transition-transform">
-                  {country.flag}
+                Start predicting
+              </a>
+              <a
+                href="/rules"
+                className={`${focusLinkClass} inline-flex items-center justify-center rounded-full border border-emerald-700/30 bg-white px-7 py-4 text-base font-bold text-emerald-900 shadow-sm transition hover:border-emerald-700 hover:bg-emerald-50`}
+              >
+                See the rules
+              </a>
+            </div>
+
+            <p className="mt-5 text-sm font-medium text-gray-700">
+              Free to join · Google login · Predictions lock at kickoff · 5 / 2 / 0 scoring
+            </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-emerald-100 bg-white p-4 shadow-2xl shadow-emerald-900/10 sm:p-6">
+            <div className="rounded-[1.5rem] bg-emerald-700 p-5 text-white shadow-inner">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100">
+                    Kickoff countdown
+                  </p>
+                  <p className="mt-2 text-2xl font-black">World Cup 2026</p>
                 </div>
-                <p className="text-sm text-gray-400 group-hover:text-gold transition-colors">
-                  {country.name}
-                </p>
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-3xl" aria-hidden="true">
+                  ⚽
+                </div>
               </div>
+              <div className="mt-6 rounded-2xl bg-white p-4 text-gray-950">
+                <CountdownTimer />
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[1.5rem] border border-gray-100 bg-[#f8fbf9] p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-700">Upcoming matches</p>
+                  <p className="text-sm text-gray-600">Static preview of the match hub</p>
+                </div>
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Fast view</span>
+              </div>
+
+              <div className="space-y-3">
+                {previewMatches.map((match) => (
+                  <article key={`${match.home}-${match.away}`} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <span>{match.stage}</span>
+                      <time>{match.kickoff}</time>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                      <div className="text-left">
+                        <p className="text-2xl" aria-hidden="true">{match.homeFlag}</p>
+                        <p className="font-bold text-gray-950">{match.home}</p>
+                      </div>
+                      <div className="rounded-full bg-gray-100 px-3 py-1 text-sm font-black text-gray-500">vs</div>
+                      <div className="text-right">
+                        <p className="text-2xl" aria-hidden="true">{match.awayFlag}</p>
+                        <p className="font-bold text-gray-950">{match.away}</p>
+                      </div>
+                    </div>
+                    <a
+                      href="/login"
+                      className={`${focusLinkClass} mt-4 inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100`}
+                    >
+                      Predict this match
+                    </a>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:py-18">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 max-w-2xl">
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">Why fans use it</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">A clean match hub for busy football fans</h2>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {valueCards.map((card) => (
+              <article key={card.title} className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg hover:shadow-emerald-900/10">
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-2xl" aria-hidden="true">
+                  {card.icon}
+                </div>
+                <h3 className="text-xl font-black text-gray-950">{card.title}</h3>
+                <p className="mt-3 leading-7 text-gray-700">{card.body}</p>
+              </article>
             ))}
           </div>
+        </div>
+      </section>
 
-          <p className="text-gray-500 text-sm">
-            🌍 All 48 participating nations available at launch
+      <section className="px-4 py-14 sm:py-18">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">How it works</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">Three steps from kickoff to leaderboard</h2>
+            <p className="mt-4 text-lg leading-8 text-gray-700">
+              Predict26 keeps the flow simple so you can make picks quickly and get back to watching football.
+            </p>
+          </div>
+          <div className="grid gap-4">
+            {steps.map((step, index) => (
+              <article key={step.title} className="flex gap-4 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-lg font-black text-white">
+                  {index + 1}
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-gray-950">{step.title}</h3>
+                  <p className="mt-2 leading-7 text-gray-700">{step.body}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:py-18">
+        <div className="mx-auto max-w-7xl rounded-[2rem] border border-emerald-100 bg-white p-6 shadow-xl shadow-emerald-900/5 sm:p-8 lg:p-10">
+          <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">Fair scoring</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">No hidden scoring rules</h2>
+              <p className="mt-4 text-lg leading-8 text-gray-700">
+                Everyone plays by the same points system. Predictions lock automatically at kickoff.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {scoringRules.map((rule) => (
+                <article key={rule.label} className="rounded-3xl border border-gray-200 bg-[#f8fbf9] p-5 text-center">
+                  <p className="text-sm font-bold uppercase tracking-wide text-gray-600">{rule.label}</p>
+                  <p className="mt-3 text-5xl font-black text-emerald-700">{rule.points}</p>
+                  <p className="mt-1 font-bold text-gray-950">points</p>
+                  <p className="mt-3 text-sm leading-6 text-gray-600">{rule.detail}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:py-18">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-2 lg:items-center">
+          <div className="rounded-[2rem] border border-emerald-100 bg-emerald-800 p-6 text-white shadow-xl shadow-emerald-900/15 sm:p-8">
+            <div className="rounded-[1.5rem] border border-white/20 bg-white/10 p-5">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-100">At a glance</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight">Your football dashboard, simplified</h2>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {glanceItems.map((item) => (
+                  <div key={item} className="rounded-2xl bg-white p-4 text-gray-950 shadow-sm">
+                    <p className="text-sm font-semibold text-gray-500">{item}</p>
+                    <p className="mt-2 text-lg font-black text-emerald-800">Ready when you are</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">Busy fan catch-up</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">Everything you need before kickoff</h2>
+            <p className="mt-4 text-lg leading-8 text-gray-700">
+              Open Predict26 and quickly check the next match, pending predictions, points, country rank, and global rank. It is built to be scanned in seconds on mobile.
+            </p>
+            <a
+              href="/login"
+              className={`${focusLinkClass} mt-7 inline-flex items-center justify-center rounded-full bg-emerald-700 px-7 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
+            >
+              Start predicting
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-14 sm:py-18">
+        <div className="mx-auto max-w-7xl rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="md:col-span-1">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">Trusted game</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950">Football predictions, not betting</h2>
+            </div>
+            <div className="grid gap-4 md:col-span-2 sm:grid-cols-3">
+              <div className="rounded-2xl bg-gray-50 p-5">
+                <p className="text-2xl" aria-hidden="true">🛡️</p>
+                <p className="mt-3 font-black text-gray-950">Predict26 is a football prediction game, not betting.</p>
+              </div>
+              <div className="rounded-2xl bg-gray-50 p-5">
+                <p className="text-2xl" aria-hidden="true">📋</p>
+                <p className="mt-3 font-black text-gray-950">No hidden scoring rules.</p>
+              </div>
+              <div className="rounded-2xl bg-gray-50 p-5">
+                <p className="text-2xl" aria-hidden="true">🤝</p>
+                <p className="mt-3 font-black text-gray-950">Everyone plays by the same points system.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative overflow-hidden px-4 py-16 sm:py-20" id="join">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(22,163,74,0.16),_transparent_42%)]" />
+        <div className="relative mx-auto max-w-4xl rounded-[2rem] border border-emerald-100 bg-white p-8 text-center shadow-2xl shadow-emerald-900/10 sm:p-12">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">Before kickoff</p>
+          <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-5xl">Start predicting before kickoff</h2>
+          <p className="mx-auto mt-4 max-w-2xl text-lg leading-8 text-gray-700">
+            Join for free, sign in with Google, and make exact-score predictions with clear 5 / 2 / 0 scoring.
           </p>
-        </div>
-      </section>
-
-      {/* How It Works Section */}
-      <section className="py-20 md:py-32 px-4 bg-surface/50">
-        <div className="max-w-6xl mx-auto text-center">
-          <h2 className="text-3xl md:text-5xl font-bold mb-16">
-            How It <span className="gold-text-gradient">Works</span>
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            <div className="flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full gold-gradient flex items-center justify-center text-2xl font-bold text-black mb-4">
-                1
-              </div>
-              <h3 className="text-xl font-bold mb-2">Join Free</h3>
-              <p className="text-gray-400">Sign up and pick your country to represent</p>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full gold-gradient flex items-center justify-center text-2xl font-bold text-black mb-4">
-                2
-              </div>
-              <h3 className="text-xl font-bold mb-2">Predict</h3>
-              <p className="text-gray-400">Make your predictions for each World Cup match</p>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="w-16 h-16 rounded-full gold-gradient flex items-center justify-center text-2xl font-bold text-black mb-4">
-                3
-              </div>
-              <h3 className="text-xl font-bold mb-2">Win</h3>
-              <p className="text-gray-400">Climb the leaderboard and win real cash prizes</p>
-            </div>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <a
+              href="/login"
+              className={`${focusLinkClass} inline-flex items-center justify-center rounded-full bg-emerald-700 px-8 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
+            >
+              Start predicting before kickoff
+            </a>
+            <a
+              href="/rules"
+              className={`${focusLinkClass} inline-flex items-center justify-center rounded-full border border-emerald-700/30 bg-white px-8 py-4 text-base font-bold text-emerald-900 transition hover:bg-emerald-50`}
+            >
+              Review scoring rules
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Final CTA Section */}
-      <section className="py-20 md:py-32 px-4 relative overflow-hidden" id="join">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(212,175,55,0.1)_0%,_transparent_60%)]" />
-        
-        <div className="relative z-10 max-w-3xl mx-auto text-center">
-          <h2 className="text-3xl md:text-5xl font-bold mb-6">
-            Ready to <span className="gold-text-gradient">Predict & Win</span>?
-          </h2>
-          <p className="text-gray-400 text-lg mb-10 max-w-xl mx-auto">
-            Join thousands of football fans competing for glory and real prizes.
-            Don&apos;t miss your chance to earn the Founder Badge.
-          </p>
-
-          <a
-            href="https://t.me/Predict26Official"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-3 gold-gradient text-black font-bold px-10 py-5 rounded-full text-xl hover:scale-105 transition-transform animate-pulse-gold"
-          >
-            <span>⚽</span>
-            <span>Join Telegram</span>
-          </a>
-
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-gray-500">
-            <span className="flex items-center gap-2">
-              <span className="text-gold">✓</span> Free to play
-            </span>
-            <span className="hidden sm:inline text-gray-700">•</span>
-            <span className="flex items-center gap-2">
-              <span className="text-gold">✓</span> Real prizes
-            </span>
-            <span className="hidden sm:inline text-gray-700">•</span>
-            <span className="flex items-center gap-2">
-              <span className="text-gold">✓</span> No credit card
-            </span>
+      <footer className="border-t border-gray-200 bg-white px-4 py-8">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 sm:flex-row">
+          <div className="flex items-center gap-2 font-black text-emerald-800">
+            <span className="text-xl" aria-hidden="true">⚽</span>
+            <span>Predict26</span>
           </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-8 px-4 border-t border-surface-border">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">⚽</span>
-            <span className="font-bold gold-text-gradient">Predict26</span>
-          </div>
-          <div className="flex items-center gap-4 text-sm text-gray-500">
-            <a href="/rules" className="transition hover:text-gold">Rules</a>
-            <span>© 2025 Predict26. All rights reserved.</span>
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm font-medium text-gray-600">
+            <a href="/rules" className={`${focusLinkClass} rounded-md transition hover:text-emerald-800`}>Rules</a>
+            <a href="/leaderboard" className={`${focusLinkClass} rounded-md transition hover:text-emerald-800`}>Leaderboard</a>
+            <span>© 2026 Predict26. All rights reserved.</span>
           </div>
         </div>
       </footer>
