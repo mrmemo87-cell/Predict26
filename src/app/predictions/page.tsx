@@ -62,8 +62,11 @@ export default async function PredictionsPage({
       <div className="mx-auto w-full max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <Link href="/dashboard" className="text-sm text-gray-400 transition hover:text-gold">← Dashboard</Link>
-          <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">
-            Predictions
+          <div className="flex items-center gap-3">
+            <Link href="/rules" className="text-sm font-medium text-gray-500 transition hover:text-gold">Rules</Link>
+            <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">
+              Predictions
+            </div>
           </div>
         </header>
 
