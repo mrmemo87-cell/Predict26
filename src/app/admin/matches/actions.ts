@@ -146,29 +146,14 @@ export async function scoreMatch(formData: FormData) {
   }
 
   const supabase = createAdminClient();
-  const [{ data: match }, { count: predictionCount }, { count: scoredPredictionCount }] = await Promise.all([
-    supabase
-      .from("matches")
-      .select("id, status, home_score, away_score")
-      .eq("id", matchId)
-      .maybeSingle<{ id: string; status: string | null; home_score: number | null; away_score: number | null }>(),
-    supabase
-      .from("predictions")
-      .select("id", { count: "exact", head: true })
-      .eq("match_id", matchId),
-    supabase
-      .from("predictions")
-      .select("id", { count: "exact", head: true })
-      .eq("match_id", matchId)
-      .eq("result_points_applied", true),
-  ]);
+  const { data: match } = await supabase
+    .from("matches")
+    .select("id, status, home_score, away_score")
+    .eq("id", matchId)
+    .maybeSingle<{ id: string; status: string | null; home_score: number | null; away_score: number | null }>();
 
   if (match?.status !== "finished" || match.home_score === null || match.away_score === null) {
     redirect("/admin/matches?error=match_not_scoreable");
-  }
-
-  if ((predictionCount ?? 0) > 0 && predictionCount === scoredPredictionCount) {
-    redirect("/admin/matches?already_scored=1");
   }
 
   try {

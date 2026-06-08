@@ -36,6 +36,8 @@ type ExactResultReconciliationRow = {
   users_with_mismatch: unknown;
   missing_ledger_rows_count: number;
   duplicate_active_ledger_rows_count: number;
+  unexpected_active_non_exact_ledger_rows_count: number;
+  active_ledger_points_sum: number;
   status: string;
 };
 
@@ -49,6 +51,8 @@ export type ExactResultLedgerReconciliationResult = {
   usersWithMismatch: unknown;
   missingLedgerRowsCount: number;
   duplicateActiveLedgerRowsCount: number;
+  unexpectedActiveNonExactLedgerRowsCount: number;
+  activeLedgerPointsSum: number;
   status: string;
 };
 
@@ -119,6 +123,8 @@ export async function reconcileExactResultLedger(): Promise<ExactResultLedgerRec
       usersWithMismatch: [],
       missingLedgerRowsCount: 0,
       duplicateActiveLedgerRowsCount: 0,
+      unexpectedActiveNonExactLedgerRowsCount: 0,
+      activeLedgerPointsSum: 0,
       status: "empty",
     };
   }
@@ -133,6 +139,8 @@ export async function reconcileExactResultLedger(): Promise<ExactResultLedgerRec
     usersWithMismatch: row.users_with_mismatch,
     missingLedgerRowsCount: row.missing_ledger_rows_count,
     duplicateActiveLedgerRowsCount: row.duplicate_active_ledger_rows_count,
+    unexpectedActiveNonExactLedgerRowsCount: row.unexpected_active_non_exact_ledger_rows_count ?? 0,
+    activeLedgerPointsSum: row.active_ledger_points_sum ?? row.ledger_points_sum ?? 0,
     status: row.status,
   };
 }
