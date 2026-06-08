@@ -47,10 +47,12 @@ const ledgerMetricCards = [
   ["Scored predictions", "scoredPredictionsCount"],
   ["Exact-result ledger rows", "exactResultLedgerRowsCount"],
   ["Prediction points", "predictionsPointsSum"],
-  ["Ledger points", "ledgerPointsSum"],
+  ["Exact ledger points", "ledgerPointsSum"],
+  ["Active ledger points", "activeLedgerPointsSum"],
   ["Profile points", "profilesPointsSum"],
   ["Missing ledger rows", "missingLedgerRowsCount"],
   ["Duplicate active rows", "duplicateActiveLedgerRowsCount"],
+  ["Unexpected non-exact rows", "unexpectedActiveNonExactLedgerRowsCount"],
   ["Mismatch users", "usersWithMismatchCount"],
 ] as const;
 
@@ -58,6 +60,7 @@ type MismatchUser = {
   user_id?: string;
   predictions_points?: number;
   ledger_points?: number;
+  active_ledger_points?: number;
   profile_points?: number;
 };
 
@@ -184,7 +187,8 @@ export default async function AdminPage({
                     <tr>
                       <th className="py-2 pr-4">User</th>
                       <th className="py-2 pr-4">Predictions</th>
-                      <th className="py-2 pr-4">Ledger</th>
+                      <th className="py-2 pr-4">Exact ledger</th>
+                      <th className="py-2 pr-4">Active ledger</th>
                       <th className="py-2 pr-4">Profile</th>
                     </tr>
                   </thead>
@@ -194,6 +198,7 @@ export default async function AdminPage({
                         <td className="py-2 pr-4 font-mono">{user.user_id ?? "unknown"}</td>
                         <td className="py-2 pr-4">{user.predictions_points ?? 0}</td>
                         <td className="py-2 pr-4">{user.ledger_points ?? 0}</td>
+                        <td className="py-2 pr-4">{user.active_ledger_points ?? 0}</td>
                         <td className="py-2 pr-4">{user.profile_points ?? 0}</td>
                       </tr>
                     ))}
@@ -205,7 +210,7 @@ export default async function AdminPage({
 
           <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
             <p className="font-bold">Safety warning</p>
-            <p>These utilities are admin-only and service-role-only. Exact-result backfill records shadow ledger rows only; it does not affect user points, profile accuracy, leaderboard order, or the existing Score match button.</p>
+            <p>These utilities are admin-only and service-role-only. Phase 5B scoring uses active ledger rows as the authoritative source for profile points while preserving profile accuracy and existing user-facing read paths.</p>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
