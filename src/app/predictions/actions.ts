@@ -24,6 +24,12 @@ const parseScore = (value: FormDataEntryValue | null) => {
   return score;
 };
 
+const getPredictionChoice = (homeScore: number, awayScore: number) => {
+  if (homeScore > awayScore) return "home";
+  if (homeScore < awayScore) return "away";
+  return "draw";
+};
+
 export async function savePrediction(formData: FormData) {
   const matchId = formData.get("match_id")?.toString();
   const homeScore = parseScore(formData.get("home_score"));
@@ -65,13 +71,16 @@ export async function savePrediction(formData: FormData) {
   }
 
   const unlockedMatch = match as NonNullable<typeof match>;
+  const validHomeScore = homeScore as number;
+  const validAwayScore = awayScore as number;
 
   const { error } = await supabase.from("predictions").upsert(
     {
       user_id: user.id,
       match_id: unlockedMatch.id,
-      home_score: homeScore,
-      away_score: awayScore,
+      home_score: validHomeScore,
+      away_score: validAwayScore,
+      choice: getPredictionChoice(validHomeScore, validAwayScore),
     },
     { onConflict: "user_id,match_id" },
   );

@@ -128,7 +128,8 @@ export async function saveMatch(formData: FormData) {
   const { error } = await query;
 
   if (error) {
-    redirect(`/admin/matches?error=${encodeURIComponent(error.message)}`);
+    console.error("match save failed", { message: error.message, code: error.code });
+    redirect("/admin/matches?error=save_failed");
   }
 
   revalidatePath("/admin/matches");
@@ -205,7 +206,8 @@ export async function markReportReviewed(formData: FormData) {
     .eq("id", reportId);
 
   if (error) {
-    redirect(`/admin/matches?error=${encodeURIComponent(error.message)}`);
+    console.error("report update failed", { message: error.message, code: error.code });
+    redirect("/admin/matches?error=report_save_failed");
   }
 
   revalidatePath("/admin/matches");

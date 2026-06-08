@@ -1,16 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getCountryFlag } from "@/lib/domain/countries";
 import { createClient } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
-
-type CountryRow = {
-  code: string;
-  name: string;
-  flag_emoji: string | null;
-};
-
-type ProfileCountryRelation = CountryRow | CountryRow[] | null;
+type SearchParams = Promise<{ country?: string }>;
 
 type LeaderboardProfile = {
   id: string;
@@ -20,159 +13,98 @@ type LeaderboardProfile = {
   correct_predictions: number | null;
   total_predictions: number | null;
   country_code: string | null;
+  is_founder: boolean | null;
   created_at: string | null;
-  countries: ProfileCountryRelation;
 };
 
-type RankedLeaderboardProfile = LeaderboardProfile & {
-  rank: number;
-  country: CountryRow | null;
+type LeaderboardRow = {
+  player: LeaderboardProfile;
+  globalRank: number;
+  countryRank: number;
+  referralCount: number;
 };
 
-type LeaderboardPageProps = {
-  searchParams?: Promise<{
-    country?: string | string[];
-  }>;
+type StoredLeaderboardRow = {
+  user_id: string | null;
+  referral_count: number | null;
 };
 
-const getCountryRelation = (country: ProfileCountryRelation) =>
-  Array.isArray(country) ? (country[0] ?? null) : country;
-
-const normalizeCountryCode = (countryCode: string | null | undefined) =>
-  countryCode?.trim().toUpperCase() ?? "";
-
-const getCountryLabel = (country: CountryRow | null, countryCode: string | null) => {
-  if (country) {
-    return `${country.flag_emoji ?? "🏳️"} ${country.name}`;
-  }
-
-  return countryCode ? `🏳️ ${countryCode}` : "🏳️ No country";
+type CountryRow = {
+  code: string | null;
+  name: string | null;
+  flag_emoji: string | null;
 };
 
-const getPlayerName = (player: LeaderboardProfile, currentUserId: string, currentUserEmail?: string | null) =>
-  player.display_name?.trim() ||
-  player.username?.trim() ||
-  (player.id === currentUserId ? currentUserEmail ?? null : null) ||
-  "Player";
-
-const getAccuracy = (correctPredictions: number, totalPredictions: number) => {
-  if (totalPredictions === 0) {
-    return "0%";
-  }
-
-  return `${Math.round((correctPredictions / totalPredictions) * 100)}%`;
+const normalizeCountryFilter = (country: string | undefined) => {
+  const normalized = country?.trim().toUpperCase();
+  return normalized || null;
 };
 
-const hasScoredPrediction = (player: LeaderboardProfile) =>
-  (player.total_predictions ?? 0) > 0 ||
-  (player.correct_predictions ?? 0) > 0 ||
-  (player.points ?? 0) > 0;
+const getCountryFilterFlags = (countryFilter: string | null, countries: CountryRow[]) => {
+  if (!countryFilter) return new Set<string>();
 
-const sortLeaderboardProfiles = (profiles: LeaderboardProfile[]) =>
-  [...profiles].sort((first, second) => {
-    const pointsDelta = (second.points ?? 0) - (first.points ?? 0);
-    if (pointsDelta !== 0) return pointsDelta;
+  const flags = new Set<string>();
+  const generatedFlag = getCountryFlag(countryFilter);
+  if (generatedFlag) flags.add(generatedFlag);
 
-    const correctDelta = (second.correct_predictions ?? 0) - (first.correct_predictions ?? 0);
-    if (correctDelta !== 0) return correctDelta;
-
-    const totalDelta = (first.total_predictions ?? 0) - (second.total_predictions ?? 0);
-    if (totalDelta !== 0) return totalDelta;
-
-    const firstCreatedAt = first.created_at ? new Date(first.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-    const secondCreatedAt = second.created_at ? new Date(second.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-    const createdAtDelta = firstCreatedAt - secondCreatedAt;
-    if (createdAtDelta !== 0) return createdAtDelta;
-
-    return first.id.localeCompare(second.id);
+  countries.forEach((country) => {
+    if (country.code?.trim().toUpperCase() === countryFilter && country.flag_emoji) {
+      flags.add(country.flag_emoji);
+    }
   });
 
-const rankProfiles = (profiles: LeaderboardProfile[], countryByCode: Map<string, CountryRow>): RankedLeaderboardProfile[] =>
-  sortLeaderboardProfiles(profiles).map((profile, index) => {
-    const countryCode = normalizeCountryCode(profile.country_code);
-    const country = getCountryRelation(profile.countries) ?? countryByCode.get(countryCode) ?? null;
+  return flags;
+};
+
+const countryCodeMatchesFilter = (
+  countryCode: string | null,
+  countryFilter: string | null,
+  matchingFlags: Set<string>,
+  countries: CountryRow[],
+) => {
+  if (!countryFilter) return true;
+
+  const normalizedCode = countryCode?.trim().toUpperCase();
+  if (!normalizedCode) return false;
+  if (normalizedCode === countryFilter) return true;
+
+  const generatedFlag = getCountryFlag(normalizedCode);
+  if (generatedFlag && matchingFlags.has(generatedFlag)) return true;
+
+  return countries.some(
+    (country) => country.code?.trim().toUpperCase() === normalizedCode && country.flag_emoji && matchingFlags.has(country.flag_emoji),
+  );
+};
+
+const buildLeaderboardRows = (
+  profiles: LeaderboardProfile[],
+  referralCounts: Map<string, number>,
+): LeaderboardRow[] => {
+  const sortedProfiles = [...profiles].sort((first, second) => {
+    const pointDelta = (second.points ?? 0) - (first.points ?? 0);
+    if (pointDelta !== 0) return pointDelta;
+
+    return (first.created_at ?? "").localeCompare(second.created_at ?? "");
+  });
+  const countryRankCounters = new Map<string, number>();
+
+  return sortedProfiles.map((player, index) => {
+    const countryCode = player.country_code?.trim().toUpperCase() || "";
+    const nextCountryRank = (countryRankCounters.get(countryCode) ?? 0) + 1;
+    countryRankCounters.set(countryCode, nextCountryRank);
 
     return {
-      ...profile,
-      rank: index + 1,
-      country,
+      player,
+      globalRank: index + 1,
+      countryRank: nextCountryRank,
+      referralCount: referralCounts.get(player.id) ?? 0,
     };
   });
+};
 
-function LeaderboardTable({
-  rows,
-  currentUserId,
-  currentUserEmail,
-  emptyMessage,
-}: {
-  rows: RankedLeaderboardProfile[];
-  currentUserId: string;
-  currentUserEmail?: string | null;
-  emptyMessage: string;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center">
-        <p className="text-sm font-semibold text-gray-900">{emptyMessage}</p>
-        <p className="mt-2 text-sm text-gray-500">Check back after predictions are scored.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-3xl border border-surface-border bg-white shadow-sm">
-      {rows.map((player) => {
-        const isCurrentUser = player.id === currentUserId;
-        const points = player.points ?? 0;
-        const correctPredictions = player.correct_predictions ?? 0;
-        const totalPredictions = player.total_predictions ?? 0;
-
-        return (
-          <div
-            key={player.id}
-            className={`grid gap-4 border-b border-surface-border p-4 last:border-b-0 sm:grid-cols-[72px_1fr_auto] sm:items-center sm:p-5 ${
-              isCurrentUser ? "bg-gold/10 ring-1 ring-inset ring-gold/40" : "bg-white"
-            }`}
-          >
-            <div className="flex items-center gap-3 sm:block">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-50 text-lg font-bold text-gold ring-1 ring-gray-100">
-                {player.rank}
-              </div>
-              {isCurrentUser && (
-                <span className="rounded-full bg-gold px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-white sm:mt-2 sm:inline-block">
-                  You
-                </span>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-lg font-bold text-gray-900">
-                  {getPlayerName(player, currentUserId, currentUserEmail)}
-                </p>
-                {isCurrentUser && (
-                  <span className="rounded-full border border-gold/30 bg-white px-2.5 py-1 text-xs font-semibold text-gold">
-                    Your row
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-sm text-gray-500">
-                {getCountryLabel(player.country, player.country_code)} · {correctPredictions}/{totalPredictions} correct · {getAccuracy(correctPredictions, totalPredictions)} accuracy
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 px-4 py-3 text-left sm:min-w-32 sm:text-right">
-              <p className="text-2xl font-bold gold-text-gradient">{points}</p>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">points</p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export default async function LeaderboardPage({ searchParams }: LeaderboardPageProps) {
+export default async function LeaderboardPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams;
+  const countryFilter = normalizeCountryFilter(params.country);
   const supabase = await createClient();
   const resolvedSearchParams = await searchParams;
   const selectedCountryParam = Array.isArray(resolvedSearchParams?.country)
@@ -208,106 +140,117 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
     redirect("/onboarding/country");
   }
 
-  const countries = (countriesRes.error ? [] : (countriesRes.data as CountryRow[] | null)) ?? [];
-  const countryByCode = new Map(countries.map((country) => [normalizeCountryCode(country.code), country]));
-  const profiles = (profilesRes.error ? [] : (profilesRes.data as LeaderboardProfile[] | null)) ?? [];
-  const scoredProfiles = profiles.filter(hasScoredPrediction);
-  const globalRows = rankProfiles(scoredProfiles, countryByCode);
+  const [{ data: profiles }, { data: storedLeaderboardRows }, { data: countries }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, display_name, username, points, country_code, is_founder, created_at")
+      .order("points", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(500),
+    supabase
+      .from("leaderboards")
+      .select("user_id, referral_count"),
+    supabase
+      .from("countries")
+      .select("code, name, flag_emoji")
+      .order("name", { ascending: true }),
+  ]);
 
-  const userCountryCode = normalizeCountryCode(profile.country_code);
-  const selectedCountryCode = normalizeCountryCode(selectedCountryParam) || userCountryCode;
-  const selectedCountry = countryByCode.get(selectedCountryCode) ?? null;
-  const countryProfiles = profiles.filter(
-    (player) => normalizeCountryCode(player.country_code) === selectedCountryCode,
+  const referralCounts = new Map(
+    ((storedLeaderboardRows ?? []) as unknown as StoredLeaderboardRow[])
+      .filter((row) => row.user_id)
+      .map((row) => [row.user_id as string, row.referral_count ?? 0]),
   );
-  const countryRows = rankProfiles(countryProfiles.filter(hasScoredPrediction), countryByCode);
-  const userGlobalRank = globalRows.find((player) => player.id === user.id)?.rank ?? null;
-  const userCountryRank = rankProfiles(
-    scoredProfiles.filter((player) => normalizeCountryCode(player.country_code) === userCountryCode),
-    countryByCode,
-  ).find((player) => player.id === user.id)?.rank ?? null;
+  const countryRows = (countries ?? []) as CountryRow[];
+  const matchingCountryFlags = getCountryFilterFlags(countryFilter, countryRows);
+  const leaderboardRows = buildLeaderboardRows((profiles ?? []) as LeaderboardProfile[], referralCounts);
+  const displayedRows = leaderboardRows
+    .filter((row) => countryCodeMatchesFilter(row.player.country_code, countryFilter, matchingCountryFlags, countryRows))
+    .slice(0, 50);
+  const title = countryFilter ? `${countryFilter} leaderboard` : "Global leaderboard";
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8 sm:py-12">
-      <div className="mx-auto w-full max-w-6xl">
-        <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <Link href="/dashboard" className="text-sm font-medium text-gray-500 transition hover:text-gold">← Dashboard</Link>
+      <div className="mx-auto w-full max-w-4xl">
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <Link href="/dashboard" className="text-sm text-gray-500 transition hover:text-gold">← Dashboard</Link>
           <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">Leaderboard</div>
         </header>
 
-        <section className="mb-6 rounded-3xl border border-surface-border bg-white p-6 shadow-sm sm:p-8">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-gold">Scored predictions</p>
-          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 sm:text-5xl">Global and country <span className="gold-text-gradient">rankings</span></h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-500">
-                Players are ranked by points, then correct predictions, fewer total predictions, and earliest join date.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:min-w-72">
-              <div className="rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Your rank</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">{userGlobalRank ? `#${userGlobalRank}` : "—"}</p>
+        <section className="mb-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-gold">Top players</p>
+          <h1 className="text-3xl font-bold text-gray-900 sm:text-5xl">
+            {countryFilter ? countryFilter : "Global"} <span className="gold-text-gradient">leaderboard</span>
+          </h1>
+          <p className="mt-3 text-sm text-gray-500">
+            {countryFilter
+              ? "Country ranks are calculated against players representing this country."
+              : "Global ranks are calculated from the latest player points."}
+          </p>
+          <form action="/leaderboard" className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <label htmlFor="country" className="text-sm font-semibold text-gray-700">
+              Country
+            </label>
+            <select
+              id="country"
+              name="country"
+              defaultValue={countryFilter ?? ""}
+              className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900 outline-none transition focus:border-gold focus:ring-4 focus:ring-gold/20"
+            >
+              <option value="">Global leaderboard</option>
+              {countryRows.map((country) => (
+                <option key={country.code ?? country.name} value={country.code ?? ""}>
+                  {country.flag_emoji ? `${country.flag_emoji} ` : ""}{country.name ?? country.code}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded-2xl bg-gold px-5 py-3 text-sm font-bold text-black transition hover:bg-gold-light">
+              View ranks
+            </button>
+          </form>
+        </section>
+
+        <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm" aria-label={title}>
+          {displayedRows.map((row) => {
+            const rank = countryFilter ? row.countryRank : row.globalRank;
+
+            const isCurrentUser = row.player.id === user.id;
+
+            return (
+              <div
+                key={row.player.id}
+                className={`flex items-center gap-4 border-b p-4 last:border-b-0 sm:p-5 ${
+                  isCurrentUser ? "border-gold/40 bg-gold/10" : "border-gray-200"
+                }`}
+              >
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-50 font-bold text-gold">
+                  {rank}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-bold text-gray-900">
+                    {row.player.display_name || row.player.username || "Player"} {row.player.is_founder ? "🏅" : ""}
+                    {isCurrentUser ? <span className="ml-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">You</span> : null}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {row.player.country_code ?? "—"} · Global rank {row.globalRank} · Country rank {row.countryRank} · Referrals {row.referralCount}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold gold-text-gradient">{row.player.points ?? 0}</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-gray-500">pts</p>
+                </div>
               </div>
-              <div className="rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Country rank</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">{userCountryRank ? `#${userCountryRank}` : "—"}</p>
-              </div>
-            </div>
-          </div>
-        </section>
+            );
+          })}
 
-        <section className="mb-8">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">Global leaderboard</p>
-              <h2 className="mt-1 text-2xl font-bold text-gray-900">Top players</h2>
+          {displayedRows.length === 0 && (
+            <div className="p-10 text-center text-gray-500">
+              {countryFilter
+                ? `No ${countryFilter} leaderboard rows are available yet.`
+                : "Leaderboard rows will appear after players start scoring points."}
             </div>
-          </div>
-          <LeaderboardTable
-            rows={globalRows.slice(0, 50)}
-            currentUserId={user.id}
-            currentUserEmail={user.email}
-            emptyMessage="No predictions scored yet"
-          />
-        </section>
-
-        <section>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-gold">Country leaderboard</p>
-              <h2 className="mt-1 text-2xl font-bold text-gray-900">
-                {selectedCountry ? `${selectedCountry.flag_emoji ?? "🏳️"} ${selectedCountry.name}` : selectedCountryCode}
-              </h2>
-            </div>
-            <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
-              {countries.map((country) => {
-                const isSelected = normalizeCountryCode(country.code) === selectedCountryCode;
-
-                return (
-                  <Link
-                    key={country.code}
-                    href={`/leaderboard?country=${encodeURIComponent(country.code)}`}
-                    className={`shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                      isSelected
-                        ? "border-gold bg-gold text-white"
-                        : "border-gray-200 bg-white text-gray-600 hover:border-gold/60 hover:text-gray-900"
-                    }`}
-                  >
-                    {country.flag_emoji ?? "🏳️"} {country.name}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-
-          <LeaderboardTable
-            rows={countryRows.slice(0, 50)}
-            currentUserId={user.id}
-            currentUserEmail={user.email}
-            emptyMessage={countryProfiles.length === 0 ? "No players in this country yet" : "No predictions scored yet"}
-          />
-        </section>
+          )}
+        </div>
       </div>
     </main>
   );
