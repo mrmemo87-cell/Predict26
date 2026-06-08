@@ -16,7 +16,14 @@ export function getConfiguredAdminEmails(): string[] {
     .filter(Boolean);
 }
 
-export async function requireAdminUser(): Promise<AdminUser> {
+export function isConfiguredAdminEmail(email: string | null | undefined): boolean {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (!normalizedEmail) return false;
+
+  return getConfiguredAdminEmails().includes(normalizedEmail);
+}
+
+export async function requireAdminUser(redirectTo = "/admin"): Promise<AdminUser> {
   const allowedEmails = getConfiguredAdminEmails();
 
   if (allowedEmails.length === 0) {
@@ -29,10 +36,10 @@ export async function requireAdminUser(): Promise<AdminUser> {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirectTo=/admin/matches");
+    redirect(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
   }
 
-  const email = user.email?.toLowerCase();
+  const email = user.email?.trim().toLowerCase();
   if (!email || !allowedEmails.includes(email)) {
     redirect("/dashboard?error=admin_required");
   }

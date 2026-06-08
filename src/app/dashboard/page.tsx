@@ -11,6 +11,7 @@ import UserCountryBadge from "@/components/dashboard/UserCountryBadge";
 import { countryCodesMatch } from "@/lib/domain/countries";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import { fetchWorldCupGroups } from "@/lib/data/groups";
+import { isConfiguredAdminEmail } from "@/lib/admin/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,8 @@ export default async function DashboardPage() {
       )
     : null;
   const heroMatch = countryMatch ?? matches[0] ?? null;
+
+  const isAdmin = isConfiguredAdminEmail(user.email);
 
   const totalPredictions = predictions.length;
   const correctPredictions = predictions.filter(
@@ -181,6 +184,13 @@ export default async function DashboardPage() {
               <h2 className="mt-4 text-xl font-bold text-gray-900">Rules</h2>
               <p className="mt-2 text-sm leading-6 text-gray-500">Review scoring, leaderboards, prizes, and tie-breakers.</p>
             </Link>
+            {isAdmin && (
+              <Link href="/admin" className="rounded-3xl border border-gold/30 bg-white p-6 shadow-sm transition hover:border-gold hover:bg-gold/5">
+                <span className="text-3xl">🛠️</span>
+                <h2 className="mt-4 text-xl font-bold text-gray-900">Admin Dashboard</h2>
+                <p className="mt-2 text-sm leading-6 text-gray-500">Open match operations and real data readiness tools.</p>
+              </Link>
+            )}
           </nav>
         </div>
       </div>

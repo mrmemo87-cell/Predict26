@@ -78,7 +78,7 @@ const friendlyError = (error: string) => ERROR_MESSAGES[error] ?? "Could not sav
 
 export default async function AdminMatchManagerPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  await requireAdminUser();
+  await requireAdminUser("/admin/matches");
 
   const supabase = createAdminClient();
   const [{ data: competitions }, { data: stadiums }, { data: matches }, { data: reports }] = await Promise.all([
@@ -130,7 +130,10 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
       <div className="mx-auto w-full max-w-6xl">
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Link href="/dashboard" className="text-sm text-gray-400 transition hover:text-gold">← Dashboard</Link>
+            <div className="flex gap-4 text-sm">
+              <Link href="/admin" className="text-gray-400 transition hover:text-gold">← Admin Dashboard</Link>
+              <Link href="/dashboard" className="text-gray-400 transition hover:text-gold">Main Dashboard</Link>
+            </div>
             <h1 className="mt-3 text-3xl font-bold text-gray-900 sm:text-5xl">Admin Match Manager</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
               Add or edit fixtures, assign stadiums, update kickoff times, adjust status and score, and review wrong match reports. Sync preparation stays server-side.
@@ -198,7 +201,7 @@ export default async function AdminMatchManagerPage({ searchParams }: { searchPa
           </div>
         </section>
 
-        <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+        <section id="wrong-match-reports" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">Wrong match reports</h2>
           <div className="mt-6 space-y-3">
             {reportRows.map((report) => (

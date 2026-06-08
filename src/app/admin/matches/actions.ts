@@ -48,7 +48,7 @@ const normalizeReportStatus = (value: FormDataEntryValue | null): ReportStatus =
 };
 
 export async function saveMatch(formData: FormData) {
-  await requireAdminUser();
+  await requireAdminUser("/admin/matches");
 
   const matchId = optionalString(formData.get("match_id"));
   const homeTeamName = optionalString(formData.get("home_team_name"));
@@ -137,7 +137,7 @@ export async function saveMatch(formData: FormData) {
 }
 
 export async function scoreMatch(formData: FormData) {
-  await requireAdminUser();
+  await requireAdminUser("/admin/matches");
 
   const matchId = optionalString(formData.get("match_id"));
 
@@ -190,7 +190,7 @@ export async function scoreMatch(formData: FormData) {
 }
 
 export async function markReportReviewed(formData: FormData) {
-  const admin = await requireAdminUser();
+  const admin = await requireAdminUser("/admin/matches");
 
   const reportId = optionalString(formData.get("report_id"));
   const status = normalizeReportStatus(formData.get("report_status"));
