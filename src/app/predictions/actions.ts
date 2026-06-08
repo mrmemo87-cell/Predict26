@@ -80,6 +80,7 @@ export async function savePrediction(formData: FormData) {
     match_id: unlockedMatch.id,
     home_score: validHomeScore,
     away_score: validAwayScore,
+    pick: predictionChoice,
     choice: predictionChoice,
   };
 

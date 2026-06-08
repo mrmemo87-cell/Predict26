@@ -3,9 +3,21 @@
 -- the derived result choice; older migrations may have left only predicted_*
 -- columns, missing choice, or NOT NULL legacy columns that block inserts.
 
+do $$ begin
+  create type public.prediction_pick as enum ('home', 'draw', 'away');
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create type public.prediction_result as enum ('correct', 'wrong', 'pending');
+exception when duplicate_object then null;
+end $$;
+
 alter table public.predictions
   add column if not exists home_score integer,
   add column if not exists away_score integer,
+  add column if not exists pick public.prediction_pick,
+  add column if not exists result public.prediction_result not null default 'pending',
   add column if not exists choice text,
   add column if not exists created_at timestamptz not null default timezone('utc', now()),
   add column if not exists updated_at timestamptz not null default timezone('utc', now());
@@ -57,6 +69,17 @@ where choice is null
   and home_score is not null
   and away_score is not null;
 
+-- Keep legacy pick and text choice columns aligned for historical rows.
+update public.predictions
+set pick = choice::public.prediction_pick
+where pick is null
+  and choice in ('home', 'draw', 'away');
+
+update public.predictions
+set choice = pick::text
+where choice is null
+  and pick is not null;
+
 -- Canonical exact-score constraints. They are intentionally NOT VALID first so
 -- existing data can be remediated without blocking deployment; future writes are
 -- still checked immediately by PostgreSQL.
@@ -64,9 +87,11 @@ alter table public.predictions
   drop constraint if exists predictions_home_score_nonnegative,
   drop constraint if exists predictions_away_score_nonnegative,
   drop constraint if exists predictions_choice_allowed,
+  drop constraint if exists predictions_pick_choice_compatible,
   add constraint predictions_home_score_nonnegative check (home_score >= 0) not valid,
   add constraint predictions_away_score_nonnegative check (away_score >= 0) not valid,
-  add constraint predictions_choice_allowed check (choice in ('home', 'draw', 'away')) not valid;
+  add constraint predictions_choice_allowed check (choice in ('home', 'draw', 'away')) not valid,
+  add constraint predictions_pick_choice_compatible check (choice is null or pick is null or choice = pick::text) not valid;
 
 -- Remove any historical duplicate rows before enforcing the upsert conflict
 -- target. Keep the most recently updated/submitted/created prediction.
