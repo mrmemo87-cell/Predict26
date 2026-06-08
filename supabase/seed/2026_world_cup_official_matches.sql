@@ -446,7 +446,7 @@ begin
           case when has_city then ', city' else '' end,
           case when has_match_number then '$11,' else '' end,
           case when has_competition_id then '$12,' else '' end,
-          case when has_stage then ', $7' else '' end,
+          case when has_stage then ', $7' || case when exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'match_stage') then '::public.match_stage' else '' end else '' end,
           case when has_group_name then ', $8' else '' end,
           case when has_venue then ', $9' else '' end,
           case when has_city then ', $10' else '' end
@@ -464,7 +464,7 @@ begin
         execute format(
           'update public.matches set home_team_code = $1, away_team_code = $2, home_team_name = $3, away_team_name = $4, kickoff_at = $5, status = ''scheduled'' %s %s %s %s %s where id = $12 %s',
           case when has_modern_country_codes then ', home_country_code = $7, away_country_code = $8' else '' end,
-          case when has_stage then ', stage = $9' else '' end,
+          case when has_stage then ', stage = $9' || case when exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'match_stage') then '::public.match_stage' else '' end else '' end,
           case when has_group_name then ', group_name = $10' else '' end,
           case when has_venue then ', venue = $11' else '' end,
           case when has_city then ', city = $13' else '' end,
