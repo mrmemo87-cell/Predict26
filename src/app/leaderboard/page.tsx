@@ -106,11 +106,6 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const countryFilter = normalizeCountryFilter(params.country);
   const supabase = await createClient();
-  const resolvedSearchParams = await searchParams;
-  const selectedCountryParam = Array.isArray(resolvedSearchParams?.country)
-    ? resolvedSearchParams?.country[0]
-    : resolvedSearchParams?.country;
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -119,22 +114,11 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
     redirect("/login?redirectTo=/leaderboard");
   }
 
-  const [profileRes, profilesRes, countriesRes] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("country_code")
-      .eq("id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("profiles")
-      .select("id, display_name, username, points, correct_predictions, total_predictions, country_code, created_at, countries(code, name, flag_emoji)"),
-    supabase
-      .from("countries")
-      .select("code, name, flag_emoji")
-      .order("name", { ascending: true }),
-  ]);
-
-  const profile = profileRes.data;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("country_code")
+    .eq("id", user.id)
+    .maybeSingle();
 
   if (!profile?.country_code) {
     redirect("/onboarding/country");

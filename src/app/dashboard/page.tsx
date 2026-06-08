@@ -23,7 +23,11 @@ type NewsRow = {
 
 type PredictionRow = {
   id: string;
+  points: number | null;
   points_awarded: number | null;
+  scoring_outcome: string | null;
+  scored_at: string | null;
+  result_points_applied: boolean | null;
 };
 
 type LeaderboardRow = {
@@ -56,7 +60,7 @@ export default async function DashboardPage() {
       .limit(5),
     supabase
       .from("predictions")
-      .select("id, points_awarded")
+      .select("id, points, points_awarded, scoring_outcome, scored_at, result_points_applied")
       .eq("user_id", user.id),
     supabase
       .from("leaderboards")
@@ -96,10 +100,26 @@ export default async function DashboardPage() {
 
   const isAdmin = isConfiguredAdminEmail(user.email);
 
-  const totalPredictions = predictions.length;
-  const correctPredictions = predictions.filter(
+  const submittedPredictions = predictions.length;
+  const scoredPredictions = predictions.filter(
     (prediction) =>
-      prediction.points_awarded !== null && prediction.points_awarded > 0,
+      prediction.result_points_applied === true ||
+      prediction.scoring_outcome !== null ||
+      prediction.scored_at !== null,
+  ).length;
+  const correctPredictions = predictions.filter(
+    (prediction) => {
+      const isScored =
+        prediction.result_points_applied === true ||
+        prediction.scoring_outcome !== null ||
+        prediction.scored_at !== null;
+      const points = prediction.points ?? prediction.points_awarded ?? 0;
+
+      return (
+        isScored &&
+        (points > 0 || prediction.scoring_outcome === "exact" || prediction.scoring_outcome === "result")
+      );
+    },
   ).length;
 
   return (
@@ -137,7 +157,8 @@ export default async function DashboardPage() {
           <CountryHero match={heroMatch} userCountryCode={userCountryCode} />
 
           <PerformanceCard
-            totalPredictions={totalPredictions}
+            submittedPredictions={submittedPredictions}
+            scoredPredictions={scoredPredictions}
             correctPredictions={correctPredictions}
           />
 
