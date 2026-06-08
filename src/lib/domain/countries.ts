@@ -47,3 +47,42 @@ export function getCountryFlag(code: string | null | undefined): string | null {
   );
   return String.fromCodePoint(...codePoints);
 }
+
+export type FlagLookupRow = {
+  code: string | null;
+  flag_emoji?: string | null;
+};
+
+export function buildFlagLookup(
+  rows: FlagLookupRow[] | null | undefined,
+): Map<string, string> {
+  return new Map(
+    (rows ?? [])
+      .map((row) => {
+        const code = normalizeCountryCode(row.code);
+        const flag = row.flag_emoji?.trim();
+        return code && flag ? ([code, flag] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, string] => entry !== null),
+  );
+}
+
+export function resolveCountryFlag(
+  code: string | null | undefined,
+  flagLookup?: Map<string, string>,
+): string | null {
+  const normalized = normalizeCountryCode(code);
+  if (!normalized) return null;
+
+  return flagLookup?.get(normalized) ?? getCountryFlag(normalized);
+}
+
+export function formatFlaggedLabel(
+  label: string | null | undefined,
+  code: string | null | undefined,
+  flagLookup?: Map<string, string>,
+): string {
+  const name = label?.trim() || code?.trim().toUpperCase() || "Team TBA";
+  const flag = resolveCountryFlag(code, flagLookup);
+  return flag ? `${flag} ${name}` : name;
+}
