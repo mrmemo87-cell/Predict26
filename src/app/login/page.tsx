@@ -47,13 +47,14 @@ export default async function LoginPage({
           </p>
         </div>
 
-        {/* Back link */}
-        <div className="mt-6 text-center">
-          <Link
-            href="/"
-            className="text-sm font-medium text-gray-600 transition-colors hover:text-gold-dark"
-          >
+        {/* Back links */}
+        <div className="mt-6 flex flex-col items-center justify-center gap-2 text-sm font-medium text-gray-600 sm:flex-row sm:gap-4">
+          <Link href="/" className="transition-colors hover:text-gold-dark">
             ← Back to home
+          </Link>
+          <span className="hidden text-gray-300 sm:inline">•</span>
+          <Link href="/rules" className="transition-colors hover:text-gold-dark">
+            View rules
           </Link>
         </div>
       </div>

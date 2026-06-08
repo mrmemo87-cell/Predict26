@@ -165,7 +165,7 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <nav className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <nav className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Link href="/predictions" className="rounded-3xl border border-gold/30 bg-gold/5 p-6 transition hover:border-gold hover:bg-gold/10">
               <span className="text-3xl">🎯</span>
               <h2 className="mt-4 text-xl font-bold text-gray-900">Predictions</h2>
@@ -175,6 +175,11 @@ export default async function DashboardPage() {
               <span className="text-3xl">🏅</span>
               <h2 className="mt-4 text-xl font-bold text-gray-900">Leaderboard</h2>
               <p className="mt-2 text-sm leading-6 text-gray-500">Track global points and country rivals.</p>
+            </Link>
+            <Link href="/rules" className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:border-gold/60">
+              <span className="text-3xl">📋</span>
+              <h2 className="mt-4 text-xl font-bold text-gray-900">Rules</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">Review scoring, leaderboards, prizes, and tie-breakers.</p>
             </Link>
           </nav>
         </div>

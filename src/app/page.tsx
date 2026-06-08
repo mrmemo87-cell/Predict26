@@ -280,9 +280,10 @@ export default function Home() {
             <span className="text-xl">⚽</span>
             <span className="font-bold gold-text-gradient">Predict26</span>
           </div>
-          <p className="text-sm text-gray-500">
-            © 2025 Predict26. All rights reserved.
-          </p>
+          <div className="flex items-center gap-4 text-sm text-gray-500">
+            <a href="/rules" className="transition hover:text-gold">Rules</a>
+            <span>© 2025 Predict26. All rights reserved.</span>
+          </div>
         </div>
       </footer>
     </main>

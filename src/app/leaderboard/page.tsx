@@ -174,7 +174,10 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       <div className="mx-auto w-full max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <Link href="/dashboard" className="text-sm text-gray-500 transition hover:text-gold">← Dashboard</Link>
-          <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">Leaderboard</div>
+          <div className="flex items-center gap-3">
+            <Link href="/rules" className="text-sm font-medium text-gray-500 transition hover:text-gold">Rules</Link>
+            <div className="rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">Leaderboard</div>
+          </div>
         </header>
 
         <section className="mb-6 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
