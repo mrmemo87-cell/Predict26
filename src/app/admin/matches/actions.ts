@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireAdminUser } from "@/lib/admin/permissions";
+import { updateMatchBonusReadiness, BONUS_READINESS_STATUSES, type BonusReadinessCategory, type BonusReadinessStatus } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const MATCH_STATUSES = ["scheduled", "live", "in_progress", "completed", "finished", "postponed", "cancelled"] as const;
 const REPORT_STATUSES = ["reviewed", "dismissed", "resolved"] as const;
+const BONUS_READINESS_CATEGORIES = ["possession", "goal_events", "lineup_home", "lineup_away"] as const;
 
 type MatchStatus = (typeof MATCH_STATUSES)[number];
 type ReportStatus = (typeof REPORT_STATUSES)[number];
@@ -45,6 +47,32 @@ const normalizeReportStatus = (value: FormDataEntryValue | null): ReportStatus =
   }
 
   redirect("/admin/matches?error=invalid_report");
+};
+
+const normalizeBonusReadinessCategory = (
+  value: FormDataEntryValue | null,
+): BonusReadinessCategory => {
+  if (
+    typeof value === "string" &&
+    BONUS_READINESS_CATEGORIES.includes(value as BonusReadinessCategory)
+  ) {
+    return value as BonusReadinessCategory;
+  }
+
+  redirect("/admin/matches?error=invalid_bonus_readiness");
+};
+
+const normalizeBonusReadinessStatus = (
+  value: FormDataEntryValue | null,
+): BonusReadinessStatus => {
+  if (
+    typeof value === "string" &&
+    BONUS_READINESS_STATUSES.includes(value as BonusReadinessStatus)
+  ) {
+    return value as BonusReadinessStatus;
+  }
+
+  redirect("/admin/matches?error=invalid_bonus_readiness");
 };
 
 export async function saveMatch(formData: FormData) {
@@ -197,4 +225,36 @@ export async function markReportReviewed(formData: FormData) {
 
   revalidatePath("/admin/matches");
   redirect("/admin/matches?report_saved=1");
+}
+
+export async function updateBonusReadiness(formData: FormData) {
+  const admin = await requireAdminUser("/admin/matches");
+
+  const matchId = optionalString(formData.get("match_id"));
+
+  if (!matchId) {
+    redirect("/admin/matches?error=invalid_bonus_readiness");
+  }
+
+  const category = normalizeBonusReadinessCategory(formData.get("category"));
+  const status = normalizeBonusReadinessStatus(formData.get("status"));
+  const notes = optionalString(formData.get("notes"));
+
+  try {
+    await updateMatchBonusReadiness({
+      matchId,
+      category,
+      status,
+      notes,
+      confirmedBy: admin.id,
+    });
+  } catch (error) {
+    console.error("bonus readiness update failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    redirect("/admin/matches?error=bonus_readiness_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  redirect("/admin/matches?bonus_readiness_saved=1");
 }
