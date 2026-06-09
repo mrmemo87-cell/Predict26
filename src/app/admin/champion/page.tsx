@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PendingSubmitButton from "@/components/PendingSubmitButton";
 
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { CHAMPION_PICK_POINTS } from "@/lib/scoring/championScoring";
@@ -361,7 +362,7 @@ export default async function AdminChampionPage({
             }`}
           >
             <p className="font-bold">
-              {errorMessage ? "Action failed" : "Action complete"}
+              {errorMessage ? "Could not finish" : "All set"}
             </p>
             <p>{errorMessage ?? successMessage}</p>
           </section>
@@ -458,18 +459,18 @@ export default async function AdminChampionPage({
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
+              <PendingSubmitButton
+                idleText="Save Champion Pick config"
+                pendingText="Saving config..."
                 formAction={saveChampionPickConfig}
                 className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-800"
-              >
-                Save Champion Pick config
-              </button>
-              <button
+              />
+              <PendingSubmitButton
+                idleText="Seed/fix WC2026 defaults"
+                pendingText="Preparing defaults..."
                 formAction={setupChampionPickConfig}
                 className="rounded-full border border-gold/40 bg-gold/10 px-5 py-3 text-sm font-black text-gold-dark transition hover:border-gold hover:bg-gold/20"
-              >
-                Seed/fix WC2026 defaults
-              </button>
+              />
             </div>
           </form>
 
@@ -618,24 +619,24 @@ export default async function AdminChampionPage({
             </label>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <button
+              <PendingSubmitButton
+                idleText="Save draft champion result"
+                pendingText="Saving draft..."
                 formAction={saveChampionResultDraft}
                 className="rounded-full border border-gray-200 px-5 py-3 text-sm font-black text-gray-700 transition hover:border-gold hover:text-gold"
-              >
-                Save draft champion result
-              </button>
-              <button
+              />
+              <PendingSubmitButton
+                idleText="Confirm official champion"
+                pendingText="Confirming..."
                 formAction={confirmChampionResult}
                 className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-700"
-              >
-                Confirm official champion
-              </button>
-              <button
+              />
+              <PendingSubmitButton
+                idleText="Withdraw confirmation"
+                pendingText="Withdrawing..."
                 formAction={withdrawChampionResult}
                 className="rounded-full bg-amber-500 px-5 py-3 text-sm font-black text-white transition hover:bg-amber-600"
-              >
-                Withdraw confirmation
-              </button>
+              />
             </div>
           </form>
 
@@ -692,9 +693,11 @@ export default async function AdminChampionPage({
                   ? " The current confirmed result will be used."
                   : " Because the result is not confirmed, this will void active Champion ledger rows if any exist."}
               </p>
-              <button className="mt-3 rounded-full bg-gold px-5 py-3 text-sm font-black text-emerald-950 transition hover:bg-gold-dark">
-                Score / Rescore Champion Picks
-              </button>
+              <PendingSubmitButton
+                idleText="Score / Rescore Champion Picks"
+                pendingText="Scoring champion picks..."
+                className="mt-3 rounded-full bg-gold px-5 py-3 text-sm font-black text-emerald-950 transition hover:bg-gold-dark"
+              />
             </form>
           </div>
 

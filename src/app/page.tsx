@@ -1,4 +1,5 @@
 import CountdownTimer from "@/components/CountdownTimer";
+import LottieWorldCupHero from "@/components/LottieWorldCupHero";
 
 const valueCards = [
   {
@@ -92,16 +93,15 @@ export default function Home() {
           <div className="min-w-0">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/85 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              World Cup prediction hub
+              World Cup 2026 prediction game
             </div>
 
             <h1 className="max-w-4xl text-4xl font-black leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-7xl">
-              Predict World Cup scores in seconds
+              Make every World Cup match matter
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg leading-8 text-gray-700 sm:text-xl">
-              Follow upcoming matches, submit exact-score predictions, and climb
-              global and country leaderboards — without the noise.
+              Predict exact scores, call the big moments, and chase prizes with your country behind you. Fast picks, friendly rivalry, all tournament long.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -109,28 +109,28 @@ export default function Home() {
                 href="/login"
                 className={`${focusLinkClass} inline-flex items-center justify-center rounded-full bg-emerald-700 px-7 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
               >
-                Start predicting
+                Join Predict26
               </a>
               <a
                 href="/rules"
                 className={`${focusLinkClass} inline-flex items-center justify-center rounded-full border border-emerald-700/30 bg-white px-7 py-4 text-base font-bold text-emerald-900 shadow-sm transition hover:border-emerald-700 hover:bg-emerald-50`}
               >
-                See the rules
+                Explore scoring
               </a>
             </div>
 
             <p className="mt-5 text-sm font-medium text-gray-700">
-              Free to join · Google login · Predictions lock at kickoff · 5 / 2
-              / 0 scoring
+              Free to join · Telegram updates at @Predict26Official · Picks lock at kickoff
             </p>
           </div>
 
           <div className="w-full min-w-0 max-w-full rounded-[2rem] border border-emerald-100 bg-white p-3 shadow-2xl shadow-emerald-900/10 sm:p-6">
-            <div className="min-w-0 rounded-[1.5rem] bg-emerald-700 p-4 text-white shadow-inner sm:p-5">
+            <LottieWorldCupHero />
+            <div className="mt-4 min-w-0 rounded-[1.5rem] bg-emerald-700 p-4 text-white shadow-inner sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100">
-                    Kickoff countdown
+                    Countdown to kickoff
                   </p>
                   <p className="mt-2 text-2xl font-black">World Cup 2026</p>
                 </div>
@@ -153,7 +153,7 @@ export default function Home() {
                     Upcoming matches
                   </p>
                   <p className="text-sm text-gray-600">
-                    Static preview of the match hub
+                    A taste of the match hub
                   </p>
                 </div>
                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
@@ -196,7 +196,7 @@ export default function Home() {
                       href="/login"
                       className={`${focusLinkClass} mt-4 inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100`}
                     >
-                      Predict this match
+                      Make your pick
                     </a>
                   </article>
                 ))}
@@ -206,14 +206,33 @@ export default function Home() {
         </div>
       </section>
 
+
+      <section className="px-4 pb-6">
+        <div className="mx-auto grid max-w-7xl gap-4 md:grid-cols-2">
+          <a
+            href="https://t.me/Predict26Official"
+            className={`${focusLinkClass} rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-lg hover:shadow-emerald-900/10`}
+          >
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-700">Telegram touchline</p>
+            <h2 className="mt-2 text-2xl font-black text-gray-950">Follow @Predict26Official</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600">Get kickoff reminders, prize notes, and tournament updates in one clean channel.</p>
+          </a>
+          <div className="rounded-3xl border border-gold/30 bg-gradient-to-br from-white to-gold/10 p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-gold-dark">Prize chase</p>
+            <h2 className="mt-2 text-2xl font-black text-gray-950">Climb into reward position</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600">Every correct call moves you up the global table. Keep picking, keep climbing, and stay close to the prize zone.</p>
+          </div>
+        </div>
+      </section>
+
       <section className="px-4 py-14 sm:py-18">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8 max-w-2xl">
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">
-              Why fans use it
+              Built for football nights
             </p>
             <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">
-              A clean match hub for busy football fans
+              Everything you need before kickoff
             </h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -245,7 +264,7 @@ export default function Home() {
               How it works
             </p>
             <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-4xl">
-              Three steps from kickoff to leaderboard
+              Three simple steps
             </h2>
             <p className="mt-4 text-lg leading-8 text-gray-700">
               Predict26 keeps the flow simple so you can make picks quickly and
@@ -354,7 +373,7 @@ export default function Home() {
               href="/login"
               className={`${focusLinkClass} mt-7 inline-flex items-center justify-center rounded-full bg-emerald-700 px-7 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
             >
-              Start predicting
+              Join Predict26
             </a>
           </div>
         </div>
@@ -411,7 +430,7 @@ export default function Home() {
             Before kickoff
           </p>
           <h2 className="mt-3 text-3xl font-black tracking-tight text-gray-950 sm:text-5xl">
-            Start predicting before kickoff
+            Join Predict26 before kickoff
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg leading-8 text-gray-700">
             Join for free, sign in with Google, and make exact-score predictions
@@ -422,7 +441,7 @@ export default function Home() {
               href="/login"
               className={`${focusLinkClass} inline-flex items-center justify-center rounded-full bg-emerald-700 px-8 py-4 text-base font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:bg-emerald-800`}
             >
-              Start predicting before kickoff
+              Join Predict26 before kickoff
             </a>
             <a
               href="/rules"

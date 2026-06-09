@@ -61,12 +61,12 @@ function PitchPreview({ players }: { players: LineupPlayer[] }) {
   );
 
   return (
-    <div className="relative min-h-[320px] overflow-hidden rounded-3xl border border-white/20 bg-emerald-900 p-4 text-white shadow-inner">
+    <div className="relative min-h-[220px] sm:min-h-[280px] overflow-hidden rounded-3xl border border-white/20 bg-emerald-900 p-4 text-white shadow-inner">
       <div className="absolute inset-3 rounded-[1.5rem] border-2 border-white/25" />
       <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/20" />
       <div className="absolute left-1/2 top-3 h-14 w-36 -translate-x-1/2 rounded-b-3xl border-x-2 border-b-2 border-white/20" />
       <div className="absolute bottom-3 left-1/2 h-14 w-36 -translate-x-1/2 rounded-t-3xl border-x-2 border-t-2 border-white/20" />
-      <div className="relative z-10 grid min-h-[288px] grid-rows-4 gap-3">
+      <div className="relative z-10 grid min-h-[196px] sm:min-h-[248px] grid-rows-4 gap-3">
         {grouped.map((line, index) => (
           <div
             key={POSITION_GROUPS[index]}
@@ -80,7 +80,7 @@ function PitchPreview({ players }: { players: LineupPlayer[] }) {
               line.map((player) => (
                 <span
                   key={player.playerId}
-                  className="max-w-[9rem] truncate rounded-full border border-white/20 bg-white/90 px-3 py-1.5 text-xs font-black text-emerald-950 shadow"
+                  className="max-w-[7rem] truncate rounded-full sm:max-w-[9rem] border border-white/20 bg-white/90 px-3 py-1.5 text-xs font-black text-emerald-950 shadow"
                 >
                   {playerLabel(player)}
                 </span>
@@ -235,13 +235,13 @@ export default function LineupPredictionModal(props: LineupModalProps) {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/70 p-0 sm:p-6"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-gray-950/70 p-0 sm:items-center sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-label="Predict starting XIs"
         >
-          <div className="flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92vh] sm:max-w-6xl sm:rounded-[2rem]">
-            <header className="flex items-start justify-between gap-4 border-b border-gray-200 px-4 py-4 sm:px-6">
+          <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:max-h-[92dvh] sm:max-w-6xl sm:rounded-[2rem]">
+            <header className="shrink-0 flex items-start justify-between gap-4 border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-700">
                   Starting XI prediction
@@ -270,7 +270,7 @@ export default function LineupPredictionModal(props: LineupModalProps) {
               </button>
             </header>
 
-            <div className="border-b border-gray-200 px-4 pt-4 sm:px-6">
+            <div className="shrink-0 border-b border-gray-200 px-4 py-3 sm:px-6">
               <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1 text-sm font-black">
                 {(["home", "away"] as const).map((side) => (
                   <button
@@ -296,8 +296,8 @@ export default function LineupPredictionModal(props: LineupModalProps) {
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] lg:overflow-hidden">
-              <div className="lg:sticky lg:top-0 lg:self-start">
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] lg:overflow-hidden">
+              <div className="min-w-0 shrink-0 lg:sticky lg:top-0 lg:self-start">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="flex min-w-0 items-center gap-2 text-lg font-black text-gray-900">
@@ -319,7 +319,7 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                 <PitchPreview players={selectedPlayers} />
               </div>
 
-              <div className="min-h-0 rounded-3xl border border-gray-200 bg-gray-50 p-4 lg:max-h-[calc(92vh-15rem)] lg:overflow-y-auto">
+              <div className="min-h-0 min-w-0 rounded-3xl border border-gray-200 bg-gray-50 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] lg:max-h-[calc(92dvh-13rem)] lg:overflow-y-auto">
                 <PlayerPicker
                   players={currentPlayers}
                   selectedIds={selectedIdSet}
@@ -332,18 +332,23 @@ export default function LineupPredictionModal(props: LineupModalProps) {
                   </p>
                 )}
                 {!props.locked && (
-                  <button
-                    type="button"
-                    onClick={saveSide}
-                    disabled={isPending || selectedIds.length !== LINEUP_SIZE}
-                    className="mt-4 w-full rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-gray-300"
-                  >
-                    {isPending
-                      ? "Saving..."
-                      : hasSavedCurrentXi
-                        ? "Update XI"
-                        : "Save XI"}
-                  </button>
+                  <div className="sticky bottom-0 -mx-4 mt-4 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-12px_24px_rgba(15,23,42,0.08)] backdrop-blur">
+                    <div className="mb-2 text-xs font-bold text-gray-600">
+                      {selectedIds.length}/{LINEUP_SIZE} selected for {currentTeamName}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={saveSide}
+                      disabled={isPending || selectedIds.length !== LINEUP_SIZE}
+                      className="w-full rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                    >
+                      {isPending
+                        ? "Saving XI..."
+                        : hasSavedCurrentXi
+                          ? "Update XI"
+                          : "Save XI"}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

@@ -52,7 +52,8 @@ export default function ChampionPicksCard({
   const [messages, setMessages] = useState<Partial<Record<"A" | "B", string>>>(
     {},
   );
-  const [isPending, startTransition] = useTransition();
+  const [pendingPick, setPendingPick] = useState<"A" | "B" | null>(null);
+  const [, startTransition] = useTransition();
   const teamsByCode = new Map(teams.map((team) => [team.teamCode, team]));
 
   const savePick = (pickType: "A" | "B") => {
@@ -66,9 +67,11 @@ export default function ChampionPicksCard({
     }
 
     setMessages((current) => ({ ...current, [pickType]: undefined }));
+    setPendingPick(pickType);
     startTransition(async () => {
       const result = await saveChampionPick(pickType, teamCode);
       setMessages((current) => ({ ...current, [pickType]: result.message }));
+      setPendingPick(null);
     });
   };
 
@@ -92,8 +95,7 @@ export default function ChampionPicksCard({
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
             Pick A and Pick B are separate champion selections with their own
-            deadlines. They are easy to update while open and are not scored
-            yet.
+            deadlines. They are easy to update while open, then lock in for the prize chase.
           </p>
         </div>
         <span className="w-fit rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-black text-gold-dark">
@@ -103,7 +105,7 @@ export default function ChampionPicksCard({
 
       {disabledMessage && (
         <p className="mt-5 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-500">
-          {disabledMessage} Add deadlines/configuration to enable saving.
+          {disabledMessage} The admin team will open this as soon as deadlines are ready.
         </p>
       )}
 
@@ -178,11 +180,11 @@ export default function ChampionPicksCard({
                   <button
                     type="button"
                     onClick={() => savePick(pick.pickType)}
-                    disabled={isPending || !selectedByType[pick.pickType]}
+                    disabled={pendingPick === pick.pickType || !selectedByType[pick.pickType]}
                     className="rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-300"
                   >
-                    {isPending
-                      ? "Saving..."
+                    {pendingPick === pick.pickType
+                      ? "Saving pick..."
                       : pick.selectedTeamCode
                         ? `Update Pick ${pick.pickType}`
                         : `Save Pick ${pick.pickType}`}
@@ -193,7 +195,7 @@ export default function ChampionPicksCard({
                     disabled
                     className="rounded-xl border border-gray-200 bg-gray-100 px-4 py-2 text-xs font-black text-gray-400"
                   >
-                    {pick.isUnavailable ? "Unavailable" : "Locked read-only"}
+                    {pick.isUnavailable ? "Opening soon" : "Locked"}
                   </button>
                 )}
               </div>
@@ -201,7 +203,7 @@ export default function ChampionPicksCard({
               {!pick.isOpen && (
                 <p className="mt-3 rounded-xl border border-dashed border-gray-200 bg-white px-3 py-2 text-sm text-gray-500">
                   {pick.isUnavailable
-                    ? "This pick is unavailable for your join time or current configuration."
+                    ? "This pick is not open for your account yet."
                     : "This pick is locked and can no longer be updated."}
                 </p>
               )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PendingSubmitButton from "@/components/PendingSubmitButton";
 
 type Country = {
   code: string;
@@ -94,13 +95,12 @@ export default function CountrySelector({ countries, saveAction }: CountrySelect
         ))}
       </div>
 
-      <button
-        type="submit"
+      <PendingSubmitButton
+        idleText="Continue to dashboard"
+        pendingText="Saving your country..."
         disabled={!selected}
         className="mt-4 w-full rounded-full gold-gradient px-6 py-4 font-bold text-black transition hover:scale-[1.01] disabled:opacity-50 disabled:hover:scale-100"
-      >
-        Continue to dashboard
-      </button>
+      />
     </form>
   );
 }
