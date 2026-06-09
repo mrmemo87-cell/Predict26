@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PendingSubmitButton from "@/components/PendingSubmitButton";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -17,6 +18,7 @@ import ChampionPicksCard, {
   type ChampionTeam,
 } from "./ChampionPicksCard";
 import LineupPredictionModal from "./LineupPredictionModal";
+import ScrollToMatch from "./ScrollToMatch";
 import {
   buildTeamCodeAliasMap,
   normalizeTeamCode,
@@ -394,7 +396,7 @@ export default async function PredictionsPage({
       : selectedTeamCode
         ? "Saved / locked"
         : isUnavailable
-          ? "Unavailable"
+          ? "Coming soon"
           : "Locked";
 
     return {
@@ -415,12 +417,13 @@ export default async function PredictionsPage({
   ];
   const championDisabledMessage =
     !championConfigRow?.champion_picks_enabled || championTeams.length === 0
-      ? "Champion picks are not open yet."
+      ? "Champion picks will open soon."
       : null;
 
   return (
     <main className="min-h-screen bg-gray-50 bg-[radial-gradient(circle_at_top_left,rgba(22,163,74,0.10),transparent_30%)] px-4 py-8 sm:py-12">
       <div className="mx-auto w-full max-w-4xl">
+        <ScrollToMatch matchId={params.match} />
         <header className="mb-8 flex items-center justify-between gap-4">
           <Link
             href="/dashboard"
@@ -662,14 +665,11 @@ export default async function PredictionsPage({
                         />
                       </label>
                     </div>
-                    <button
-                      type="submit"
+                    <PendingSubmitButton
+                      idleText={savedPredictionLabel ? "Update prediction" : "Save prediction"}
+                      pendingText="Saving pick..."
                       className="rounded-2xl border border-emerald-700 bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-                    >
-                      {savedPredictionLabel
-                        ? "Update prediction"
-                        : "Save prediction"}
-                    </button>
+                    />
                   </form>
                 )}
 
@@ -758,14 +758,11 @@ export default async function PredictionsPage({
                             </label>
                           ))}
                         </div>
-                        <button
-                          type="submit"
+                        <PendingSubmitButton
+                          idleText={savedPossession ? "Update possession pick" : "Save possession pick"}
+                          pendingText="Saving..."
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
-                        >
-                          {savedPossession
-                            ? "Update possession pick"
-                            : "Save possession pick"}
-                        </button>
+                        />
                       </form>
                     )}
                   </section>
@@ -861,14 +858,11 @@ export default async function PredictionsPage({
                             </span>
                           </p>
                         )}
-                        <button
-                          type="submit"
+                        <PendingSubmitButton
+                          idleText={savedScorerIds.length > 0 ? "Update scorer picks" : "Save scorer picks"}
+                          pendingText="Saving scorers..."
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
-                        >
-                          {savedScorerIds.length > 0
-                            ? "Update scorer picks"
-                            : "Save scorer picks"}
-                        </button>
+                        />
                       </form>
                     )}
                   </section>
@@ -879,7 +873,7 @@ export default async function PredictionsPage({
 
           {matches.length === 0 && (
             <div className="rounded-3xl border border-gray-200 bg-white p-10 text-center text-gray-500">
-              No upcoming prediction matches are available yet.
+              Upcoming prediction matches will appear here soon.
             </div>
           )}
         </div>

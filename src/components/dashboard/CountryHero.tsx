@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { countryCodesMatch, getCountryFlag } from "@/lib/domain/countries";
+import { countryCodesMatch, getCountryFlag, resolveCountryFlag } from "@/lib/domain/countries";
 import MatchCountdown from "./MatchCountdown";
 
 interface HeroMatch {
@@ -60,7 +60,7 @@ export default function CountryHero({
     return (
       <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
         <p className="text-center text-gray-500">
-          No upcoming matches available.
+          Your next match card will appear here soon.
         </p>
       </section>
     );
@@ -70,6 +70,7 @@ export default function CountryHero({
     countryCodesMatch(match.home_country_code, userCountryCode) ||
     countryCodesMatch(match.away_country_code, userCountryCode);
   const venue = match.venue?.trim() || "Venue TBA";
+  const userFlag = resolveCountryFlag(userCountryCode);
 
   return (
     <section
@@ -80,6 +81,14 @@ export default function CountryHero({
       }`}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(212,175,55,0.14),transparent_38%),linear-gradient(90deg,rgba(22,163,74,0.08)_1px,transparent_1px),linear-gradient(0deg,rgba(22,163,74,0.06)_1px,transparent_1px)] bg-[size:auto,36px_36px,36px_36px]" />
+      {isUserCountryMatch && userFlag && (
+        <div
+          className="pointer-events-none absolute -right-8 -top-8 select-none text-[9rem] opacity-[0.08] sm:text-[13rem]"
+          aria-hidden="true"
+        >
+          {userFlag}
+        </div>
+      )}
       <div className="absolute left-1/2 top-0 hidden h-full w-px -translate-x-1/2 bg-emerald-200/70 sm:block" />
       <div className="relative">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -125,7 +134,7 @@ export default function CountryHero({
             href={`/predictions?match=${match.id}`}
             className="inline-flex items-center justify-center rounded-full bg-emerald-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
-            🎯 Predict this match
+            Predict this match
           </Link>
         </div>
       </div>

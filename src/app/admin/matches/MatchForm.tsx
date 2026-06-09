@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PendingSubmitButton from "@/components/PendingSubmitButton";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 
@@ -201,9 +202,11 @@ export default function MatchForm({
       </label>
 
       <div className="flex items-end gap-3 md:col-span-2">
-        <button type="submit" className="rounded-full bg-gold px-6 py-3 text-sm font-bold text-black shadow-lg shadow-gold/20 transition hover:-translate-y-0.5">
-          Save match
-        </button>
+        <PendingSubmitButton
+          idleText="Save match"
+          pendingText="Saving match..."
+          className="rounded-full bg-gold px-6 py-3 text-sm font-bold text-black shadow-lg shadow-gold/20 transition hover:-translate-y-0.5"
+        />
         {editingMatch && <Link href="/admin/matches" className="rounded-full border border-gray-200 px-6 py-3 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold">Cancel edit</Link>}
       </div>
     </form>

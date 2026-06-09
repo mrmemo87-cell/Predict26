@@ -11,6 +11,19 @@ export function normalizeCountryCode(code: string | null | undefined): string {
   return code.trim().toUpperCase();
 }
 
+
+const FIFA_FLAG_OVERRIDES: Record<string, string> = {
+  ARG: "🇦🇷", AUS: "🇦🇺", BEL: "🇧🇪", BRA: "🇧🇷", CAN: "🇨🇦", CHI: "🇨🇱", CHN: "🇨🇳",
+  COL: "🇨🇴", CRC: "🇨🇷", CRO: "🇭🇷", ECU: "🇪🇨", EGY: "🇪🇬", ENG: "🏴", ESP: "🇪🇸",
+  FRA: "🇫🇷", GER: "🇩🇪", GHA: "🇬🇭", IRN: "🇮🇷", ITA: "🇮🇹", JPN: "🇯🇵", KOR: "🇰🇷",
+  MEX: "🇲🇽", MAR: "🇲🇦", NED: "🇳🇱", NGA: "🇳🇬", NZL: "🇳🇿", PAR: "🇵🇾", PER: "🇵🇪",
+  POL: "🇵🇱", POR: "🇵🇹", QAT: "🇶🇦", KSA: "🇸🇦", SCO: "🏴", SEN: "🇸🇳", SRB: "🇷🇸",
+  RSA: "🇿🇦", SUI: "🇨🇭", TUN: "🇹🇳", TUR: "🇹🇷", UKR: "🇺🇦", URU: "🇺🇾", USA: "🇺🇸",
+  WAL: "🏴", DEN: "🇩🇰", SWE: "🇸🇪", NOR: "🇳🇴", CMR: "🇨🇲", CIV: "🇨🇮",
+  ALG: "🇩🇿", JAM: "🇯🇲", PAN: "🇵🇦", HON: "🇭🇳", SLV: "🇸🇻", HAI: "🇭🇹", BOL: "🇧🇴",
+  VEN: "🇻🇪", UZB: "🇺🇿", UAE: "🇦🇪", IRQ: "🇮🇶", JOR: "🇯🇴", OMA: "🇴🇲", IDN: "🇮🇩",
+};
+
 export function countryCodesMatch(
   firstCode: string | null | undefined,
   secondCode: string | null | undefined,
@@ -31,6 +44,9 @@ export function getCountryFlag(code: string | null | undefined): string | null {
   }
 
   const normalized = code.trim().toUpperCase();
+  const override = FIFA_FLAG_OVERRIDES[normalized];
+  if (override) return override;
+
   // Only works for 2-letter ISO codes with A-Z characters
   if (normalized.length !== 2) {
     return null;

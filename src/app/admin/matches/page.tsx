@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PendingSubmitButton from "@/components/PendingSubmitButton";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { markReportReviewed, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
@@ -236,7 +237,7 @@ type BonusReadinessItem = {
   ready: boolean;
   status: string | null | undefined;
   reason: string | null;
-  diagnostics: string;
+  healthText: string;
   notesName: string;
 };
 
@@ -255,7 +256,7 @@ function BonusDataReadinessPanel({
       ready: readiness?.possessionReady ?? false,
       status: statuses.possession,
       reason: readiness?.possessionSkipReason ?? "unreviewed",
-      diagnostics: `Rows H/A ${readiness?.possessionHomeRows ?? 0}/${readiness?.possessionAwayRows ?? 0} · Values ${formatPercent(readiness?.possessionHomePercent ?? null)}/${formatPercent(readiness?.possessionAwayPercent ?? null)}`,
+      healthText: `Rows H/A ${readiness?.possessionHomeRows ?? 0}/${readiness?.possessionAwayRows ?? 0} · Values ${formatPercent(readiness?.possessionHomePercent ?? null)}/${formatPercent(readiness?.possessionAwayPercent ?? null)}`,
       notesName: "possession notes",
     },
     {
@@ -264,7 +265,7 @@ function BonusDataReadinessPanel({
       ready: readiness?.scorersReady ?? false,
       status: statuses.goal_events,
       reason: readiness?.scorersSkipReason ?? "unreviewed",
-      diagnostics: `${readiness?.normalGoalEventsCount ?? 0} normal goal events`,
+      healthText: `${readiness?.normalGoalEventsCount ?? 0} normal goal events`,
       notesName: "scorer/event notes",
     },
     {
@@ -273,7 +274,7 @@ function BonusDataReadinessPanel({
       ready: readiness?.lineupHomeReady ?? false,
       status: statuses.lineup_home,
       reason: readiness?.lineupHomeSkipReason ?? "unreviewed",
-      diagnostics: `${readiness?.officialHomeStartersCount ?? 0}/11 mapped starters`,
+      healthText: `${readiness?.officialHomeStartersCount ?? 0}/11 mapped starters`,
       notesName: "home lineup notes",
     },
     {
@@ -282,7 +283,7 @@ function BonusDataReadinessPanel({
       ready: readiness?.lineupAwayReady ?? false,
       status: statuses.lineup_away,
       reason: readiness?.lineupAwaySkipReason ?? "unreviewed",
-      diagnostics: `${readiness?.officialAwayStartersCount ?? 0}/11 mapped starters`,
+      healthText: `${readiness?.officialAwayStartersCount ?? 0}/11 mapped starters`,
       notesName: "away lineup notes",
     },
   ];
@@ -301,7 +302,7 @@ function BonusDataReadinessPanel({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-bold text-gray-900">{item.label}</p>
-                <p className="text-xs text-gray-500">{item.diagnostics}</p>
+                <p className="text-xs text-gray-500">{item.healthText}</p>
               </div>
               <span className={`rounded-full border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${statusBadgeClasses(item.ready, item.status)}`}>
                 {item.ready ? "ready" : statusLabel(item.status)}
@@ -314,7 +315,7 @@ function BonusDataReadinessPanel({
             )}
             {item.status === "ready" && !item.ready && (
               <p className="mt-2 text-xs font-semibold text-rose-700">
-                Admin status is ready, but structural diagnostics still fail.
+                Marked ready, but required match data still needs attention.
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
@@ -328,9 +329,11 @@ function BonusDataReadinessPanel({
                 placeholder={item.notesName}
                 className="min-w-0 flex-1 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
               />
-              <button type="submit" className="rounded-full bg-gray-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-gold hover:text-black">
-                Save
-              </button>
+              <PendingSubmitButton
+                idleText="Save status"
+                pendingText="Saving..."
+                className="rounded-full bg-gray-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-gold hover:text-black"
+              />
             </div>
           </form>
         ))}
@@ -594,12 +597,11 @@ export default async function AdminMatchManagerPage({
                     {isScoreable && (
                       <form action={scoreMatch}>
                         <input type="hidden" name="match_id" value={match.id} />
-                        <button
-                          type="submit"
+                        <PendingSubmitButton
+                          idleText="Score match"
+                          pendingText="Scoring..."
                           className="w-fit rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700"
-                        >
-                          Score match
-                        </button>
+                        />
                       </form>
                     )}
                     <Link
@@ -665,12 +667,11 @@ export default async function AdminMatchManagerPage({
                       <option value="resolved">Resolved</option>
                       <option value="dismissed">Dismissed</option>
                     </select>
-                    <button
-                      type="submit"
+                    <PendingSubmitButton
+                      idleText="Update report"
+                      pendingText="Updating..."
                       className="rounded-full bg-gold px-4 py-2 text-sm font-bold text-black"
-                    >
-                      Update
-                    </button>
+                    />
                   </form>
                 </div>
               </article>
