@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 const siteUrl = "https://predict26.live";
-const siteTitle = "Predict26 — Predict World Cup 2026 & Win Real Prizes";
+const siteTitle = "Predict26 — Predict World Cup 2026";
 const siteDescription =
-  "Predict World Cup 2026 scores, compete with friends, represent your country, and climb the leaderboard for real prizes.";
+  "Predict World Cup 2026 scores, compete with friends, represent your country, and climb the leaderboard.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

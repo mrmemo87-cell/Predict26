@@ -134,7 +134,7 @@ export default function OpenGraphImage() {
               }}
             >
               <div>Predict World Cup 2026</div>
-              <div>&amp; Win Real Prizes</div>
+              <div>&amp; Compete With Friends</div>
             </div>
 
             <div
