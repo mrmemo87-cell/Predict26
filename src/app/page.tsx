@@ -1,4 +1,4 @@
-import CountdownTimer from "@/components/CountdownTimer";
+import LandingCountdownCard from "@/components/LandingCountdownCard";
 import LottieWorldCupHero from "@/components/LottieWorldCupHero";
 
 const valueCards = [
@@ -91,6 +91,8 @@ export default function Home() {
         <div className="absolute inset-x-0 top-10 h-72 bg-[linear-gradient(90deg,_rgba(22,101,52,0.08)_1px,_transparent_1px),linear-gradient(0deg,_rgba(22,101,52,0.08)_1px,_transparent_1px)] bg-[size:72px_72px] opacity-70" />
         <div className="relative mx-auto grid w-full max-w-7xl min-w-0 items-center gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
           <div className="min-w-0">
+            <LandingCountdownCard />
+
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/85 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               World Cup 2026 prediction game
@@ -130,20 +132,26 @@ export default function Home() {
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100">
-                    Countdown to kickoff
+                    Predict, score, climb
                   </p>
-                  <p className="mt-2 text-2xl font-black">World Cup 2026</p>
+                  <p className="mt-2 text-2xl font-black">Every pick locks at kickoff</p>
                 </div>
                 <div
                   className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-3xl"
                   aria-hidden="true"
                 >
-                  ⚽
+                  🏆
                 </div>
               </div>
-              <div className="mt-6 max-w-full overflow-hidden rounded-2xl bg-white p-3 text-gray-950 sm:p-4 [&>div]:flex-wrap [&>div]:gap-2">
-                <CountdownTimer />
-              </div>
+              <p className="mt-4 text-sm font-semibold leading-6 text-emerald-50">
+                Use the live countdown on the left to jump in before the opener or the next available match.
+              </p>
+              <a
+                href="/login"
+                className={`${focusLinkClass} mt-5 inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-3 text-sm font-black text-emerald-800 transition hover:bg-emerald-50`}
+              >
+                Start predicting
+              </a>
             </div>
 
             <div className="mt-4 min-w-0 rounded-[1.5rem] border border-gray-100 bg-[#f8fbf9] p-4 sm:p-5">
