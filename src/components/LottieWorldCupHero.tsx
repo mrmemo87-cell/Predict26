@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
 type LottieMeta = {
@@ -13,7 +12,7 @@ type LottieMeta = {
 };
 
 function LottieWorldCupHeroInner() {
-  const [meta, setMeta] = useState<LottieMeta | null>(null);
+  const [meta, setMeta] = useState<LottieMeta>({ nm: "FIFA 2026", fr: 25, op: 133 });
 
   useEffect(() => {
     let mounted = true;
@@ -59,7 +58,7 @@ function LottieWorldCupHeroInner() {
         </div>
 
         <p className="mt-5 text-xs font-black uppercase tracking-[0.32em] text-white/80">
-          {meta?.nm ?? "Loading World Cup motion"}
+          {meta.nm ?? "FIFA 2026"}
         </p>
         <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
           Predict26
@@ -72,14 +71,6 @@ function LottieWorldCupHeroInner() {
   );
 }
 
-const LottieWorldCupHero = dynamic(
-  () => Promise.resolve(LottieWorldCupHeroInner),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="aspect-square w-full rounded-[2rem] border border-emerald-100 bg-emerald-50 shadow-xl shadow-emerald-900/10" />
-    ),
-  },
-);
-
-export default LottieWorldCupHero;
+export default function LottieWorldCupHero() {
+  return <LottieWorldCupHeroInner />;
+}
