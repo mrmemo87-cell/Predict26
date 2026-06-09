@@ -111,7 +111,7 @@ begin
     ('BRA', 'BR', 'Brazil', '🇧🇷', 'CONMEBOL'),
     ('MAR', 'MA', 'Morocco', '🇲🇦', 'CAF'),
     ('HAI', 'HT', 'Haiti', '🇭🇹', 'CONCACAF'),
-    ('SCO', 'SC', 'Scotland', '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'UEFA'),
+    ('SCO', 'SC', 'Scotland', '🏴', 'UEFA'),
     ('USA', 'US', 'United States', '🇺🇸', 'CONCACAF'),
     ('PAR', 'PY', 'Paraguay', '🇵🇾', 'CONMEBOL'),
     ('AUS', 'AU', 'Australia', '🇦🇺', 'AFC'),
@@ -144,7 +144,7 @@ begin
     ('UZ', 'UZ', 'Uzbekistan', '🇺🇿', 'AFC'),
     ('COL', 'CO', 'Colombia', '🇨🇴', 'CONMEBOL'),
     ('COD', 'CD', 'DR Congo', '🇨🇩', 'CAF'),
-    ('ENG', 'EN', 'England', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'UEFA'),
+    ('ENG', 'EN', 'England', '🇬🇧', 'UEFA'),
     ('CRO', 'HR', 'Croatia', '🇭🇷', 'UEFA'),
     ('GHA', 'GH', 'Ghana', '🇬🇭', 'CAF'),
     ('PAN', 'PA', 'Panama', '🇵🇦', 'CONCACAF');
