@@ -15,6 +15,7 @@ export type UpcomingPredictionMatch = {
   away_team_code: string | null;
   home_score: number | null;
   away_score: number | null;
+  sync_state_status: string | null;
 };
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -34,6 +35,7 @@ type RawMatchRow = {
   venue?: string | null;
   home_score?: number | null;
   away_score?: number | null;
+  match_provider_sync_state?: Array<{ status?: string | null }> | { status?: string | null } | null;
 };
 
 const normalizeMatch = (match: RawMatchRow): UpcomingPredictionMatch => ({
@@ -50,6 +52,9 @@ const normalizeMatch = (match: RawMatchRow): UpcomingPredictionMatch => ({
   away_team_code: match.away_team_code || null,
   home_score: match.home_score ?? null,
   away_score: match.away_score ?? null,
+  sync_state_status: Array.isArray(match.match_provider_sync_state)
+    ? match.match_provider_sync_state[0]?.status ?? null
+    : match.match_provider_sync_state?.status ?? null,
 });
 
 /**
@@ -100,7 +105,7 @@ export async function fetchUpcomingPredictionMatches(
 
   // Try fetching with competition filter first
   const selectColumns =
-    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score";
+    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score, match_provider_sync_state(status)";
 
   if (competitionId) {
     const { data, error } = await supabase
@@ -134,7 +139,7 @@ export async function fetchPredictionMatchById(
   matchId: string,
 ): Promise<UpcomingPredictionMatch | null> {
   const selectColumns =
-    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score";
+    "id, home_team_name, away_team_name, home_country_code, away_country_code, home_team_code, away_team_code, kickoff_at, stage, group_name, status, venue, home_score, away_score, match_provider_sync_state(status)";
 
   const { data, error } = await supabase
     .from("matches")

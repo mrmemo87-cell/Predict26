@@ -431,13 +431,17 @@ export async function saveLineupPrediction(
   const user = await requirePredictionUser(supabase);
   const match = await fetchPredictionMatchById(supabase, matchId);
 
+  const lineupLocksAt = match?.kickoff_at
+    ? new Date(new Date(match.kickoff_at).getTime() - 120 * 60_000)
+    : null;
+
   if (
     !match ||
     !isPredictableMatchStatus(match.status) ||
-    !match.kickoff_at ||
-    new Date(match.kickoff_at) <= new Date()
+    !lineupLocksAt ||
+    lineupLocksAt <= new Date()
   ) {
-    return safeActionError("Lineup predictions are locked for this match.");
+    return safeActionError("Lineup predictions lock 120 minutes before kickoff.");
   }
 
   const aliases = await fetchTeamCodeAliases(supabase, [

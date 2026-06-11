@@ -4,7 +4,7 @@ import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { formatUtcMatchTime } from "@/lib/dates/matchTime";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { markReportReviewed, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
+import { markMatchSyncReviewed, markReportReviewed, saveMatch, scoreMatch, syncFinishedMatchesNow, syncMatchNow, updateBonusReadiness } from "./actions";
 import MatchForm from "./MatchForm";
 import { buildFlagLookup, formatFlaggedLabel } from "@/lib/domain/countries";
 import { BONUS_READINESS_STATUSES, getMatchBonusReadinessMap, type BonusReadinessCategory, type BonusReadinessDiagnostics } from "@/lib/scoring/bonusReadiness";
@@ -16,6 +16,8 @@ type SearchParams = Promise<{
   scored?: string;
   already_scored?: string;
   bonus_readiness_saved?: string;
+  synced?: string;
+  reviewed?: string;
   edit?: string;
 }>;
 
@@ -37,10 +39,34 @@ export type MatchRow = {
   away_score: number | null;
   match_number: number | null;
   stage: string | null;
+  sync_state?: Array<MatchSyncStateRow> | MatchSyncStateRow | null;
+  provider_sync_runs?: Array<ProviderSyncRunRow> | ProviderSyncRunRow | null;
   stadiums?:
     | { name: string; city: string }
     | Array<{ name: string; city: string }>
     | null;
+};
+
+
+type MatchSyncStateRow = {
+  status: string | null;
+  exact_result_status: string | null;
+  possession_status: string | null;
+  goal_events_status: string | null;
+  lineup_home_status: string | null;
+  lineup_away_status: string | null;
+  last_synced_at: string | null;
+  next_sync_after: string | null;
+  retry_count: number | null;
+};
+
+type ProviderSyncRunRow = {
+  status: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  categories_ready: string[] | null;
+  categories_needing_review: string[] | null;
+  error_message: string | null;
 };
 
 type MatchScoringSummary = {
@@ -124,6 +150,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   report_save_failed: "Could not update that report. Please try again.",
   invalid_bonus_readiness: "Choose a valid bonus readiness status before saving.",
   bonus_readiness_failed: "Could not update bonus data readiness. Please try again.",
+  sync_failed: "Could not sync provider data. Check mappings and try again.",
+  invalid_sync_review: "Choose a valid match before marking it reviewed.",
+  sync_review_failed: "Could not mark this match reviewed. Please try again.",
 };
 
 const friendlyError = (error: string) =>
@@ -175,6 +204,33 @@ const scoringCategoryLabel = (category: string) => {
   };
 
   return labels[category] ?? statusLabel(category);
+};
+
+const syncStatusClasses = (status: string | null | undefined) => {
+  if (status === "fully_scored" || status === "final_score_scored") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "bonus_pending" || status === "awaiting_final_data") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "needs_review") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "corrected_rescored") return "border-sky-200 bg-sky-50 text-sky-700";
+  return "border-gray-200 bg-white text-gray-500";
+};
+
+const latestSyncRun = (match: MatchRow) => firstRelation(match.provider_sync_runs);
+const syncState = (match: MatchRow) => firstRelation(match.sync_state);
+
+const matchControlGroup = (match: MatchRow, summary: MatchScoringSummary) => {
+  const state = syncState(match);
+  const kickoffAt = match.kickoff_at ? new Date(match.kickoff_at) : null;
+  const hasFinalScore = match.status === "finished" && match.home_score !== null && match.away_score !== null;
+  const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+
+  if (state?.status === "needs_review") return "Needs review";
+  if (state?.status === "corrected_rescored") return "Corrected/rescored";
+  if (state?.status === "fully_scored") return "Fully scored";
+  if (state?.status === "bonus_pending") return "Bonus data pending";
+  if (hasFinalScore && exactScored) return "Final score scored";
+  if (kickoffAt && kickoffAt <= new Date()) return "Awaiting final data";
+  if (match.status === "scheduled") return "Upcoming";
+  return "Locked / waiting for match";
 };
 
 const scoringRunStatusClasses = (status: string) => {
@@ -229,6 +285,57 @@ function LatestScoringRunSummary({
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function LatestSyncRunSummary({
+  state,
+  run,
+}: {
+  state: MatchSyncStateRow | null;
+  run: ProviderSyncRunRow | null;
+}) {
+  return (
+    <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded-full border px-2 py-1 font-bold uppercase tracking-[0.14em] ${syncStatusClasses(state?.status)}`}>
+          {statusLabel(state?.status ?? "not_started")}
+        </span>
+        {state?.last_synced_at && (
+          <span className="font-semibold text-gray-500">
+            Latest sync {formatAdminDate(state.last_synced_at)}
+          </span>
+        )}
+        {run?.status && (
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 font-semibold text-gray-600">
+            Run {statusLabel(run.status)}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          ["Exact", state?.exact_result_status],
+          ["Possession", state?.possession_status],
+          ["Scorers", state?.goal_events_status],
+          ["Home XI", state?.lineup_home_status],
+          ["Away XI", state?.lineup_away_status],
+        ].map(([label, value]) => (
+          <span key={label} className={`rounded-full border px-2 py-1 font-semibold ${statusBadgeClasses(value === "ready", value)}`}>
+            {label}: {statusLabel(value)}
+          </span>
+        ))}
+      </div>
+      {state?.next_sync_after && (
+        <p className="mt-2 font-semibold text-amber-800">
+          Next post-match retry after {formatAdminDate(state.next_sync_after)} · retry {state.retry_count ?? 0}
+        </p>
+      )}
+      {run?.error_message && (
+        <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 font-semibold text-rose-700">
+          Needs review: {run.error_message}
+        </p>
+      )}
     </div>
   );
 }
@@ -371,7 +478,7 @@ export default async function AdminMatchManagerPage({
     supabase
       .from("matches")
       .select(
-        "id, competition_id, home_team_name, away_team_name, home_team_code, away_team_code, kickoff_at, status, stadium_id, venue, city, home_score, away_score, match_number, stage, stadiums(name, city)",
+        "id, competition_id, home_team_name, away_team_name, home_team_code, away_team_code, kickoff_at, status, stadium_id, venue, city, home_score, away_score, match_number, stage, stadiums(name, city), sync_state:match_provider_sync_state(status,exact_result_status,possession_status,goal_events_status,lineup_home_status,lineup_away_status,last_synced_at,next_sync_after,retry_count), provider_sync_runs(status,started_at,finished_at,categories_ready,categories_needing_review,error_message)",
       )
       .order("kickoff_at", { ascending: true, nullsFirst: false })
       .limit(100),
@@ -478,13 +585,17 @@ export default async function AdminMatchManagerPage({
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
               Add or edit fixtures, assign stadiums, update kickoff times,
-              adjust status and score, and review wrong match reports. Sync
-              preparation stays server-side.
+              adjust status and score, review wrong match reports, and handle
+              post-match provider sync exceptions. Normal finished matches score automatically.
             </p>
           </div>
-          <span className="w-fit rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold">
-            Server-side admin
-          </span>
+          <form action={syncFinishedMatchesNow}>
+            <PendingSubmitButton
+              idleText="Sync finished matches now"
+              pendingText="Syncing..."
+              className="w-fit rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-black"
+            />
+          </form>
         </header>
 
         {params.saved && (
@@ -505,6 +616,16 @@ export default async function AdminMatchManagerPage({
         {params.bonus_readiness_saved && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
             Bonus data readiness saved. Future scoring runs will use the updated eligibility state.
+          </div>
+        )}
+        {params.synced && (
+          <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+            Post-match provider sync queued and processed. Matches with incomplete data were marked for review.
+          </div>
+        )}
+        {params.reviewed && (
+          <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+            Match marked reviewed. You can rescore after any manual correction.
           </div>
         )}
         {params.already_scored && (
@@ -533,8 +654,11 @@ export default async function AdminMatchManagerPage({
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">
-            Upcoming and active matches
+            Match control
           </h2>
+          <p className="mt-2 text-sm text-gray-500">
+            Grouped operational state for post-match sync, scoring, bonus readiness, and exception review.
+          </p>
           <div className="mt-6 space-y-3">
             {matchRows.map((match) => {
               const scoringSummary = scoringSummaries[match.id] ?? {
@@ -549,6 +673,9 @@ export default async function AdminMatchManagerPage({
                 match.status === "finished" &&
                 match.home_score !== null &&
                 match.away_score !== null;
+              const controlGroup = matchControlGroup(match, scoringSummary);
+              const state = syncState(match);
+              const run = latestSyncRun(match);
               const homeLabel = formatFlaggedLabel(
                 match.home_team_name,
                 match.home_team_code,
@@ -590,11 +717,15 @@ export default async function AdminMatchManagerPage({
                         match.venue ??
                         "Unassigned"}
                     </p>
-                    <p className="mt-2 text-sm font-semibold text-gray-700">
-                      {isScored ? "Scored" : "Not scored"} · Predictions:{" "}
-                      {scoringSummary.predictions} · Points applied:{" "}
-                      {scoringSummary.pointsApplied} total
-                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <span className={`rounded-full border px-2 py-1 font-bold uppercase tracking-[0.14em] ${syncStatusClasses(state?.status)}`}>
+                        {controlGroup}
+                      </span>
+                      <span className="rounded-full border border-gray-200 bg-white px-2 py-1 font-semibold text-gray-600">
+                        {isScored ? "Scored" : "Not scored"} · Predictions {scoringSummary.predictions} · Points {scoringSummary.pointsApplied}
+                      </span>
+                    </div>
+                    <LatestSyncRunSummary state={state} run={run} />
                     {match.status === "finished" && (
                       <>
                         <LatestScoringRunSummary summary={latestScoringRuns[match.id]} />
@@ -606,21 +737,37 @@ export default async function AdminMatchManagerPage({
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <form action={syncMatchNow}>
+                      <input type="hidden" name="match_id" value={match.id} />
+                      <PendingSubmitButton
+                        idleText="Sync now"
+                        pendingText="Syncing..."
+                        className="w-fit rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:border-sky-400"
+                      />
+                    </form>
                     {isScoreable && (
                       <form action={scoreMatch}>
                         <input type="hidden" name="match_id" value={match.id} />
                         <PendingSubmitButton
-                          idleText="Score match"
+                          idleText="Score/rescore"
                           pendingText="Scoring..."
                           className="w-fit rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700"
                         />
                       </form>
                     )}
+                    <form action={markMatchSyncReviewed}>
+                      <input type="hidden" name="match_id" value={match.id} />
+                      <PendingSubmitButton
+                        idleText="Mark reviewed"
+                        pendingText="Saving..."
+                        className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-sky-400 hover:text-sky-700"
+                      />
+                    </form>
                     <Link
                       href={`/admin/matches?edit=${match.id}`}
                       className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold"
                     >
-                      Edit
+                      Manual override/edit data
                     </Link>
                   </div>
                 </article>
