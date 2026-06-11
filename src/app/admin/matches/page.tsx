@@ -1,5 +1,7 @@
 import Link from "next/link";
 import PendingSubmitButton from "@/components/PendingSubmitButton";
+import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
+import { formatUtcMatchTime } from "@/lib/dates/matchTime";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { markReportReviewed, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
@@ -94,7 +96,7 @@ const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
   return value ?? null;
 };
 
-const formatKickoff = (value: string | null) => {
+const formatAdminDate = (value: string | null) => {
   if (!value) return "Time TBA";
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
@@ -211,7 +213,7 @@ function LatestScoringRunSummary({
         </span>
         {summary.finishedAt && (
           <span className="font-semibold text-gray-500">
-            {formatKickoff(summary.finishedAt)}
+            {formatAdminDate(summary.finishedAt)}
           </span>
         )}
       </div>
@@ -564,10 +566,20 @@ export default async function AdminMatchManagerPage({
                   className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-gray-500">
-                      {formatKickoff(match.kickoff_at)} ·{" "}
-                      {match.status ?? "scheduled"}
-                    </p>
+                    <div className="text-xs">
+                      <MatchTimeBlock
+                        kickoffAt={match.kickoff_at}
+                        status={match.status}
+                        venue={match.venue ?? firstRelation(match.stadiums)?.name ?? null}
+                        city={match.city ?? firstRelation(match.stadiums)?.city ?? null}
+                        compact
+                        countdownLabel="Kickoff in"
+                        className="space-y-1"
+                      />
+                      <p className="mt-1 uppercase tracking-[0.2em] text-gray-500">
+                        UTC: {formatUtcMatchTime(match.kickoff_at)} · {match.status ?? "scheduled"}
+                      </p>
+                    </div>
                     <h3 className="mt-1 text-lg font-bold text-gray-900">
                       {homeLabel} vs {awayLabel}
                     </h3>
@@ -638,7 +650,7 @@ export default async function AdminMatchManagerPage({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-gray-500">
-                      {report.status} · {formatKickoff(report.created_at)}
+                      {report.status} · {formatAdminDate(report.created_at)}
                     </p>
                     <h3 className="mt-1 text-lg font-bold text-gray-900">
                       {firstRelation(report.matches)?.home_team_name ??

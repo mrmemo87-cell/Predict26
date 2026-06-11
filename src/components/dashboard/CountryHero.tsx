@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { countryCodesMatch, getCountryFlag, resolveCountryFlag } from "@/lib/domain/countries";
-import MatchCountdown from "./MatchCountdown";
+import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 
 interface HeroMatch {
   id: string;
@@ -120,21 +120,19 @@ export default function CountryHero({
         </div>
 
         <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">
-              Kickoff countdown
-            </p>
-            {match.kickoff_at ? (
-              <MatchCountdown kickoffAt={match.kickoff_at} />
-            ) : (
-              <span className="text-sm text-gray-500">Time TBA</span>
-            )}
-          </div>
+          <MatchTimeBlock
+            kickoffAt={match.kickoff_at}
+            status="scheduled"
+            venue={venue}
+            compact
+            countdownLabel="Locks in"
+            className="space-y-1"
+          />
           <Link
             href={`/predictions?match=${match.id}`}
             className="inline-flex items-center justify-center rounded-full bg-emerald-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
-            Predict this match
+            Lock your pick
           </Link>
         </div>
       </div>

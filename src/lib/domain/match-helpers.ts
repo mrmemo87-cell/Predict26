@@ -1,3 +1,5 @@
+import { formatLocalMatchTime } from "@/lib/dates/matchTime";
+
 /**
  * Data safety helpers for match display.
  * Handles both old (home_team_code/away_team_code) and new (home_country_code/away_country_code) schemas.
@@ -36,22 +38,7 @@ export function getMatchTeams(match: MatchRow): MatchTeams {
 }
 
 export function formatKickoff(kickoffAt: string | null | undefined): string {
-  if (!kickoffAt) return "Time TBA";
-
-  try {
-    const date = new Date(kickoffAt);
-    if (isNaN(date.getTime())) return "Time TBA";
-
-    return new Intl.DateTimeFormat("en", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(date);
-  } catch {
-    return "Time TBA";
-  }
+  return formatLocalMatchTime(kickoffAt, { compact: true });
 }
 
 export function isUserCountryMatch(

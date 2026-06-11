@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
+import MatchCountdown from "@/components/matches/MatchCountdown";
+import MatchLocalTime from "@/components/matches/MatchLocalTime";
 
 type LandingMatch = {
   id: string;
@@ -97,17 +99,6 @@ function calculateTimeLeft(targetAt: string, now: number): TimeLeft {
     minutes: Math.floor((difference / (1000 * 60)) % 60),
     seconds: Math.floor((difference / 1000) % 60),
   };
-}
-
-function formatKickoff(kickoffAt: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(kickoffAt));
 }
 
 function TimePill({ value, label }: { value: number; label: string }) {
@@ -215,10 +206,22 @@ export default function LandingCountdownCard() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs font-bold uppercase tracking-[0.16em] text-gray-500">
           <span>{countdownTarget.featuredMatch.stage}</span>
           <time dateTime={countdownTarget.featuredMatch.kickoffAt}>
-            {formatKickoff(countdownTarget.featuredMatch.kickoffAt)}
+            <MatchLocalTime
+              kickoffAt={countdownTarget.featuredMatch.kickoffAt}
+              label="Your time"
+              compact
+              showTimeZone
+            />
           </time>
         </div>
         <MatchTeams match={countdownTarget.featuredMatch} />
+        <p className="mt-3 font-mono text-sm font-black text-emerald-800">
+          <MatchCountdown
+            kickoffAt={countdownTarget.featuredMatch.kickoffAt}
+            label="Kickoff in"
+            updateMode="second"
+          />
+        </p>
         <p className="mt-3 text-sm font-semibold text-gray-600">
           {countdownTarget.featuredMatch.venue} · {countdownTarget.featuredMatch.city}
         </p>
@@ -229,7 +232,7 @@ export default function LandingCountdownCard() {
           {countdownTarget.supportingMatches.map((match) => (
             <div key={match.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
               <p className="text-[0.68rem] font-black uppercase tracking-[0.14em] text-emerald-700">
-                Up next · {formatKickoff(match.kickoffAt)}
+                Up next · <MatchLocalTime kickoffAt={match.kickoffAt} compact showTimeZone />
               </p>
               <p className="mt-1 truncate text-sm font-black text-emerald-950">
                 {match.homeFlag} {match.home} vs {match.awayFlag} {match.away}

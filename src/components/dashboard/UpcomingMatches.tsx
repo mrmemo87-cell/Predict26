@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { isUserCountryMatch as checkUserCountry } from "@/lib/domain/match-helpers";
 import { getCountryFlag } from "@/lib/domain/countries";
 
@@ -21,31 +22,6 @@ interface MatchRow {
 interface UpcomingMatchesProps {
   matches: MatchRow[];
   userCountryCode: string;
-}
-
-function formatDate(kickoffAt: string | null): string {
-  if (!kickoffAt) return "TBA";
-  try {
-    return new Intl.DateTimeFormat("en", {
-      month: "short",
-      day: "numeric",
-    }).format(new Date(kickoffAt));
-  } catch {
-    return "TBA";
-  }
-}
-
-function formatTime(kickoffAt: string | null): string {
-  if (!kickoffAt) return "TBA";
-  try {
-    return new Intl.DateTimeFormat("en", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date(kickoffAt));
-  } catch {
-    return "TBA";
-  }
 }
 
 function formatStage(stage: string | null): string {
@@ -207,13 +183,15 @@ export default function UpcomingMatches({
             >
               <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-4">
-                  <div className="min-w-16 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-center">
-                    <p className="font-mono text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      {formatDate(match.kickoff_at)}
-                    </p>
-                    <p className="mt-1 font-mono text-sm font-bold text-gold">
-                      {formatTime(match.kickoff_at)}
-                    </p>
+                  <div className="min-w-0 rounded-2xl border border-gray-200 bg-white px-3 py-2">
+                    <MatchTimeBlock
+                      kickoffAt={match.kickoff_at}
+                      status={match.status}
+                      venue={match.venue}
+                      compact
+                      countdownLabel="Kickoff in"
+                      className="space-y-1 text-xs"
+                    />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -254,7 +232,7 @@ export default function UpcomingMatches({
                       href={`/predictions?match=${match.id}`}
                       className="rounded-full border border-emerald-700 bg-emerald-700 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     >
-                      Predict
+                      Predict before kickoff
                     </Link>
                   )}
                 </div>
