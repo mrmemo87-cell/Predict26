@@ -50,6 +50,7 @@ type LineupPredictionRow = {
 
 type ChampionConfigRow = {
   competition_code: string;
+  competition_id: string | null;
   champion_picks_enabled: boolean;
   knockout_starts_at: string | null;
   round_of_16_starts_at: string | null;
@@ -86,6 +87,14 @@ type SquadPlayer = {
 type CountryFlagRow = {
   code: string | null;
   flag_emoji: string | null;
+};
+
+type CompetitionTeamRow = {
+  country_code: string | null;
+  countries:
+    | { name: string | null; flag_emoji: string | null }
+    | Array<{ name: string | null; flag_emoji: string | null }>
+    | null;
 };
 
 type SearchParams = Promise<{
@@ -172,7 +181,7 @@ export default async function PredictionsPage({
     supabase
       .from("tournament_prediction_config")
       .select(
-        "competition_code, champion_picks_enabled, knockout_starts_at, round_of_16_starts_at, champion_pick_a_deadline, champion_pick_b_deadline",
+        "competition_code, competition_id, champion_picks_enabled, knockout_starts_at, round_of_16_starts_at, champion_pick_a_deadline, champion_pick_b_deadline",
       )
       .eq("competition_code", "WC2026")
       .maybeSingle(),
@@ -256,12 +265,31 @@ export default async function PredictionsPage({
           .order("squad_number", { ascending: true })
       : { data: [] };
 
-  const { data: championTeamRows } = await supabase
-    .from("competition_team_players")
-    .select("team_code, team_name")
-    .eq("competition_code", "WC2026")
-    .eq("is_active", true)
-    .order("team_name", { ascending: true });
+  const championConfigRow = championConfig as ChampionConfigRow | null;
+
+  const { data: championTeamRows } = championConfigRow?.competition_id
+    ? await supabase
+        .from("competition_teams")
+        .select("country_code, countries(name, flag_emoji)")
+        .eq("competition_id", championConfigRow.competition_id)
+        .eq("qualified", true)
+    : { data: [] };
+
+  const championTeamCodes = [
+    ...new Set(
+      ((championTeamRows ?? []) as CompetitionTeamRow[])
+        .map((row) => normalizeTeamCode(row.country_code))
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const { data: championAliasRows } = championTeamCodes.length
+    ? await supabase
+        .from("team_code_aliases")
+        .select("alias_code, canonical_team_code")
+        .eq("competition_code", championConfigRow?.competition_code ?? "WC2026")
+        .in("alias_code", championTeamCodes)
+    : { data: [] };
+  const championAliases = buildTeamCodeAliasMap(championAliasRows);
 
   const scoresByMatch = new Map(
     ((predictions ?? []) as PredictionRow[]).map((prediction) => [
@@ -328,24 +356,25 @@ export default async function PredictionsPage({
   );
 
   const championTeams = Array.from(
-    (
-      (championTeamRows ?? []) as Array<{
-        team_code: string | null;
-        team_name: string | null;
-      }>
-    )
+    ((championTeamRows ?? []) as CompetitionTeamRow[])
       .reduce<Map<string, ChampionTeam>>((teams, row) => {
-        if (!row.team_code) return teams;
-        teams.set(row.team_code, {
-          teamCode: row.team_code,
-          teamName: row.team_name ?? row.team_code,
-          flag: resolveCountryFlag(row.team_code, flagLookup),
+        const countryCode = normalizeTeamCode(row.country_code);
+        if (!countryCode) return teams;
+
+        const country = firstRelation(row.countries);
+        const teamCode = championAliases.get(countryCode) ?? countryCode;
+        teams.set(teamCode, {
+          teamCode,
+          teamName: country?.name ?? countryCode,
+          flag:
+            country?.flag_emoji ??
+            resolveCountryFlag(teamCode, flagLookup) ??
+            resolveCountryFlag(countryCode, flagLookup),
         });
         return teams;
       }, new Map())
       .values(),
   ).sort((a, b) => a.teamName.localeCompare(b.teamName));
-  const championConfigRow = championConfig as ChampionConfigRow | null;
   const championPredictionsByType = new Map(
     ((championPredictions ?? []) as ChampionPredictionRow[]).map((pick) => [
       pick.pick_type,

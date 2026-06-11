@@ -4,6 +4,7 @@ import PendingSubmitButton from "@/components/PendingSubmitButton";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { CHAMPION_PICK_POINTS } from "@/lib/scoring/championScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildTeamCodeAliasMap, normalizeTeamCode } from "@/lib/football-data/teamCodes";
 
 import {
   confirmChampionResult,
@@ -53,8 +54,11 @@ type TournamentResultRow = {
 };
 
 type TeamRow = {
-  team_code: string | null;
-  team_name: string | null;
+  country_code: string | null;
+  countries:
+    | { name: string | null }
+    | Array<{ name: string | null }>
+    | null;
 };
 
 type ChampionPredictionRow = {
@@ -170,7 +174,6 @@ export default async function AdminChampionPage({
   const [
     { data: config },
     { data: result },
-    { data: teamRows },
     { data: predictionRows },
     { data: latestScoringRuns },
     { data: activeLedgerRows },
@@ -189,12 +192,6 @@ export default async function AdminChampionPage({
       )
       .eq("competition_code", COMPETITION_CODE)
       .maybeSingle<TournamentResultRow>(),
-    supabase
-      .from("competition_team_players")
-      .select("team_code, team_name")
-      .eq("competition_code", COMPETITION_CODE)
-      .eq("is_active", true)
-      .order("team_name", { ascending: true }),
     supabase
       .from("tournament_champion_predictions")
       .select("pick_type, team_code")
@@ -220,6 +217,14 @@ export default async function AdminChampionPage({
       .is("voided_at", null),
   ]);
 
+  const { data: teamRows } = config?.competition_id
+    ? await supabase
+        .from("competition_teams")
+        .select("country_code, countries(name)")
+        .eq("competition_id", config.competition_id)
+        .eq("qualified", true)
+    : { data: [] };
+
   const confirmedByProfile = result?.champion_confirmed_by
     ? await supabase
         .from("profiles")
@@ -228,12 +233,34 @@ export default async function AdminChampionPage({
         .maybeSingle<ProfileRow>()
     : null;
 
+  const teamCodes = [
+    ...new Set(
+      ((teamRows ?? []) as TeamRow[])
+        .map((row) => normalizeTeamCode(row.country_code))
+        .filter(Boolean) as string[],
+    ),
+  ];
+  const { data: aliasRows } = teamCodes.length
+    ? await supabase
+        .from("team_code_aliases")
+        .select("alias_code, canonical_team_code")
+        .eq("competition_code", COMPETITION_CODE)
+        .in("alias_code", teamCodes)
+    : { data: [] };
+  const aliases = buildTeamCodeAliasMap(aliasRows);
+
   const teams = ((teamRows ?? []) as TeamRow[]).reduce<Map<string, TeamOption>>(
     (options, row) => {
-      if (!row.team_code) return options;
-      options.set(row.team_code, {
-        teamCode: row.team_code,
-        teamName: row.team_name ?? row.team_code,
+      const countryCode = normalizeTeamCode(row.country_code);
+      if (!countryCode) return options;
+
+      const country = Array.isArray(row.countries)
+        ? row.countries[0]
+        : row.countries;
+      const teamCode = aliases.get(countryCode) ?? countryCode;
+      options.set(teamCode, {
+        teamCode,
+        teamName: country?.name ?? countryCode,
       });
       return options;
     },
