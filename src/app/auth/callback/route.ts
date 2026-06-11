@@ -65,10 +65,11 @@ export async function GET(request: Request) {
   const { data: sessionData, error: exchangeError } =
     await supabase.auth.exchangeCodeForSession(code);
   if (exchangeError || !sessionData.user) {
-    console.error(
-      "Google OAuth code exchange failed",
-      exchangeError?.message ?? "missing user"
-    );
+    console.error("Google OAuth code exchange failed", {
+      errorName: exchangeError?.name,
+      status: exchangeError?.status,
+      hasUser: Boolean(sessionData.user),
+    });
     return redirectWithCookies(LOGIN_CALLBACK_FAILED_PATH);
   }
 

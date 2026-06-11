@@ -1,14 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { getAuthCallbackUrl } from "@/lib/auth/site-url";
 import { createClient } from "@/lib/supabase/client";
-
-const getAuthCallbackUrl = () => {
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  const origin = configuredSiteUrl || window.location.origin;
-
-  return `${origin}/auth/callback`;
-};
 
 type GoogleAuthButtonProps = {
   className?: string;
