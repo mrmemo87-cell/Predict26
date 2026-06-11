@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PendingSubmitButton from "@/components/PendingSubmitButton";
+import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -102,18 +103,6 @@ const POSSESSION_OPTIONS = [
 ] as const;
 
 const SCORER_PICK_SLOTS = [0, 1, 2, 3];
-
-const formatKickoff = (kickoffAt: string | null) => {
-  if (!kickoffAt) return "Time TBA";
-  try {
-    return new Intl.DateTimeFormat("en", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(kickoffAt));
-  } catch {
-    return "Time TBA";
-  }
-};
 
 const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -577,9 +566,16 @@ export default async function PredictionsPage({
               >
                 <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.25em] text-emerald-700">
-                      {formatKickoff(match.kickoff_at)}
-                    </p>
+                    <div className="text-sm">
+                      <MatchTimeBlock
+                        kickoffAt={match.kickoff_at}
+                        status={match.status}
+                        venue={match.venue}
+                        compact
+                        countdownLabel="Locks in"
+                        className="space-y-1"
+                      />
+                    </div>
                     <h2 className="mt-2 text-xl font-black text-gray-900 sm:text-2xl">
                       <span className="inline-flex min-w-0 items-center gap-2">
                         {homeFlag && <span aria-hidden="true">{homeFlag}</span>}
@@ -596,7 +592,7 @@ export default async function PredictionsPage({
                         {match.stage || "Group stage"}
                       </span>
                       <span className="rounded-full bg-gray-100 px-3 py-1">
-                        Locks at kickoff
+                        Predict before kickoff
                       </span>
                     </div>
                     {savedPredictionLabel && (
@@ -611,13 +607,13 @@ export default async function PredictionsPage({
                   <span
                     className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${locked ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}`}
                   >
-                    {locked ? "Locked" : "Open for picks"}
+                    {locked ? "Prediction closed" : "Lock your pick"}
                   </span>
                 </div>
 
                 {locked ? (
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600">
-                    Prediction locked because kickoff has passed or this match
+                    Prediction closed because kickoff has passed or this match
                     is not currently scheduled.
                   </div>
                 ) : (
@@ -666,7 +662,7 @@ export default async function PredictionsPage({
                       </label>
                     </div>
                     <PendingSubmitButton
-                      idleText={savedPredictionLabel ? "Update prediction" : "Save prediction"}
+                      idleText={savedPredictionLabel ? "Update prediction" : "Lock your pick"}
                       pendingText="Saving pick..."
                       className="rounded-2xl border border-emerald-700 bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     />

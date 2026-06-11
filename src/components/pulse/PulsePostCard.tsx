@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { firstPulseMatch, type PulsePost } from "@/lib/data/pulse";
 import { buildFlagLookup, formatFlaggedLabel, resolveCountryFlag, type FlagLookupRow } from "@/lib/domain/countries";
 
@@ -10,15 +11,6 @@ const formatPulseDate = (value: string | null) => {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
-};
-
-const formatKickoff = (value: string | null) => {
-  if (!value) return "Kickoff TBA";
-
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
   }).format(new Date(value));
 };
 
@@ -100,9 +92,13 @@ export default function PulsePostCard({
                 {formatFlaggedLabel(match.away_team_name, awayCode, flagLookup)}
               </p>
             </div>
-            <p className="mt-3 text-xs font-semibold text-gray-600">
-              {formatKickoff(match.kickoff_at)}{match.venue ? ` · ${match.venue}` : ""}
-            </p>
+            <MatchTimeBlock
+              kickoffAt={match.kickoff_at}
+              venue={match.venue}
+              compact
+              countdownLabel="Kickoff in"
+              className="mt-3 space-y-1 text-xs"
+            />
           </div>
         )}
 
