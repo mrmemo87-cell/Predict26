@@ -1,4 +1,4 @@
-export type FootballProviderName = "mock" | "sportmonks" | "api-football";
+export type FootballProviderName = "mock" | "sportmonks" | "api-football" | "google-openai";
 
 export type ProviderMatchStatus =
   | "scheduled"
@@ -71,6 +71,32 @@ export type ProviderLineupPlayer = {
   rawPayload?: unknown;
 };
 
+export type ProviderPostMatchReportCategory =
+  | "exact_result"
+  | "possession"
+  | "goal_events"
+  | "lineup_home"
+  | "lineup_away";
+
+export type ProviderPostMatchReportCategoryStatus =
+  | "ready"
+  | "missing"
+  | "ambiguous"
+  | "untrusted"
+  | "incomplete";
+
+export type ProviderPostMatchReportContext = {
+  matchId: string;
+  competitionCode?: string | null;
+  homeTeamName: string | null;
+  awayTeamName: string | null;
+  homeTeamCode: string | null;
+  awayTeamCode: string | null;
+  homeCountryCode: string | null;
+  awayCountryCode: string | null;
+  kickoffAt: string | null;
+};
+
 export type ProviderPostMatchReport = {
   providerMatchId: string;
   status: ProviderMatchStatus;
@@ -80,6 +106,8 @@ export type ProviderPostMatchReport = {
   confidence?: number | null;
   fetchedAt: string;
   rawPayload?: unknown;
+  categoryStatuses?: Partial<Record<ProviderPostMatchReportCategory, ProviderPostMatchReportCategoryStatus>>;
+  categoryConfidence?: Partial<Record<ProviderPostMatchReportCategory, number>>;
   goalEvents: ProviderGoalEvent[];
   possession: ProviderPossessionStat[];
   lineups: ProviderLineupPlayer[];
@@ -103,5 +131,8 @@ export type PostMatchSyncResult = {
 export interface FootballDataProvider {
   readonly name: FootballProviderName;
   fetchMatches(): Promise<ProviderMatch[]>;
-  fetchPostMatchReport?(providerMatchId: string): Promise<ProviderPostMatchReport | null>;
+  fetchPostMatchReport?(
+    providerMatchId: string,
+    context?: ProviderPostMatchReportContext,
+  ): Promise<ProviderPostMatchReport | null>;
 }
