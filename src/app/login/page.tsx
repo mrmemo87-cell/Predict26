@@ -34,7 +34,7 @@ export default async function LoginPage({
               className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700"
               role="alert"
             >
-              Authentication failed. Please try again.
+              We couldn’t finish signing you in. Please try Google sign-in again.
             </div>
           )}
 
