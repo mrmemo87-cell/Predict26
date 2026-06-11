@@ -35,7 +35,7 @@ export function getShortTimeZoneLabel(timeZone = getUserTimeZone(), date = new D
   try {
     const parts = new Intl.DateTimeFormat("en", {
       timeZone,
-      timeZoneName: "shortOffset",
+      timeZoneName: "short",
       hour: "numeric",
     }).formatToParts(date);
     return parts.find((part) => part.type === "timeZoneName")?.value ?? timeZone;
@@ -70,8 +70,11 @@ export function formatUtcMatchTime(kickoffAt: string | null | undefined): string
 
   return new Intl.DateTimeFormat("en", {
     timeZone: DEFAULT_TIME_ZONE,
-    dateStyle: "medium",
-    timeStyle: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
 }

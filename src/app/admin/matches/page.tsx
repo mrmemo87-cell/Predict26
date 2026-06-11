@@ -124,10 +124,17 @@ const firstRelation = <T,>(value: T | T[] | null | undefined): T | null => {
 
 const formatAdminDate = (value: string | null) => {
   if (!value) return "Time TBA";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time TBA";
+
   return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -296,11 +303,13 @@ function LatestSyncRunSummary({
   state: MatchSyncStateRow | null;
   run: ProviderSyncRunRow | null;
 }) {
+  const hasSyncState = Boolean(state);
+
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`rounded-full border px-2 py-1 font-bold uppercase tracking-[0.14em] ${syncStatusClasses(state?.status)}`}>
-          {statusLabel(state?.status ?? "not_started")}
+          {hasSyncState ? statusLabel(state?.status ?? "not_started") : "No sync yet"}
         </span>
         {state?.last_synced_at && (
           <span className="font-semibold text-gray-500">
