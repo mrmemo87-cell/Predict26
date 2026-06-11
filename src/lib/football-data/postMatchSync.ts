@@ -3,23 +3,29 @@ import "server-only";
 import { getMatchBonusReadiness } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { mockFootballDataProvider } from "./providers/mock";
+import { googleOpenAiFootballDataProvider, isGoogleOpenAiConfigurationError } from "./providers/googleOpenAi";
 import type {
   FootballDataProvider,
   FootballProviderName,
   PostMatchSyncResult,
   ProviderGoalEvent,
+  ProviderLineupPlayer,
   ProviderPostMatchReport,
+  ProviderPostMatchReportCategory,
+  ProviderPostMatchReportCategoryStatus,
 } from "./providers/types";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 type EligibleMatchRow = {
   id: string;
+  competition_id: string | null;
   kickoff_at: string | null;
   status: string | null;
   home_score: number | null;
   away_score: number | null;
+  home_team_name: string | null;
+  away_team_name: string | null;
   home_team_code: string | null;
   away_team_code: string | null;
   home_country_code: string | null;
@@ -48,14 +54,30 @@ type TeamAliasRow = {
   canonical_team_code: string;
 };
 
+type CompetitionTeamPlayerRow = {
+  id: string;
+  team_code: string;
+  squad_number: number | null;
+  name_on_shirt: string | null;
+  player_id: string;
+  players: Array<{ display_name: string | null; normalized_name: string | null }> | { display_name: string | null; normalized_name: string | null } | null;
+};
+
 type ScoringRunRow = { id: string };
 
-const DEFAULT_PROVIDER = mockFootballDataProvider;
+const DEFAULT_PROVIDER = googleOpenAiFootballDataProvider;
 const EXPECTED_FULL_TIME_MINUTES = 120;
 const RETRY_MINUTES = 15;
 const MAX_RETRIES = 12;
 const FINAL_STATUSES = new Set(["completed", "finished"]);
 const SCOREABLE_GOAL_TYPES = new Set(["goal", "penalty_goal"]);
+const REPORT_CATEGORIES: ProviderPostMatchReportCategory[] = [
+  "exact_result",
+  "possession",
+  "goal_events",
+  "lineup_home",
+  "lineup_away",
+];
 
 const firstRelation = <T>(value: T | T[] | null | undefined): T | null => {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -167,6 +189,130 @@ function mappedPlayerId(
   return mapping.player_id;
 }
 
+const normalizePlayerName = (value: string | null | undefined) =>
+  value
+    ?.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ") ?? "";
+
+const playerNameForRow = (row: CompetitionTeamPlayerRow) => {
+  const player = firstRelation(row.players);
+  return player?.display_name ?? row.name_on_shirt ?? "";
+};
+
+function confidentPlayerMatch(
+  rows: CompetitionTeamPlayerRow[],
+  playerName: string,
+  shirtNumber: number | null | undefined,
+) {
+  const normalized = normalizePlayerName(playerName);
+  if (!normalized) return null;
+
+  const exactMatches = rows.filter((row) => {
+    const player = firstRelation(row.players);
+    return (
+      normalizePlayerName(player?.normalized_name) === normalized ||
+      normalizePlayerName(player?.display_name) === normalized ||
+      normalizePlayerName(row.name_on_shirt) === normalized
+    );
+  });
+  if (exactMatches.length === 1) return exactMatches[0];
+
+  if (shirtNumber !== null && shirtNumber !== undefined) {
+    const numberMatches = rows.filter(
+      (row) => row.squad_number === shirtNumber && normalizePlayerName(playerNameForRow(row)).includes(normalized),
+    );
+    if (numberMatches.length === 1) return numberMatches[0];
+  }
+
+  return null;
+}
+
+async function ensureReportPlayerMappings(
+  supabase: AdminClient,
+  provider: FootballProviderName,
+  report: ProviderPostMatchReport,
+  aliases: Map<string, string>,
+) {
+  if (provider !== "google-openai") return;
+
+  const refs = [
+    ...report.goalEvents
+      .map((event) =>
+        event.player
+          ? {
+              externalId: event.player.externalId,
+              displayName: event.player.displayName,
+              teamCode: event.player.teamCode,
+              shirtNumber: event.player.shirtNumber,
+            }
+          : null,
+      )
+      .filter(Boolean),
+    ...report.lineups.map((lineup) => ({
+      externalId: lineup.externalId,
+      displayName: lineup.displayName,
+      teamCode: lineup.teamCode,
+      shirtNumber: lineup.shirtNumber,
+    })),
+  ] as Array<{ externalId: string; displayName: string; teamCode?: string | null; shirtNumber?: number | null }>;
+
+  const uniqueRefs = [...new Map(refs.map((ref) => [ref.externalId, ref])).values()];
+  if (uniqueRefs.length === 0) return;
+
+  const teamCodes = [...new Set(uniqueRefs.map((ref) => normalizeTeamCode(ref.teamCode)).filter(Boolean) as string[])].map(
+    (code) => aliases.get(code) ?? code,
+  );
+  if (teamCodes.length === 0) return;
+
+  const { data, error } = await supabase
+    .from("competition_team_players")
+    .select("id, team_code, squad_number, name_on_shirt, player_id, players(display_name, normalized_name)")
+    .eq("competition_code", "WC2026")
+    .eq("is_active", true)
+    .in("team_code", teamCodes);
+
+  if (error) throw new Error(`Could not load competition players for provider mapping: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as CompetitionTeamPlayerRow[];
+  const rowsByTeam = rows.reduce((map, row) => {
+    const list = map.get(row.team_code) ?? [];
+    list.push(row);
+    map.set(row.team_code, list);
+    return map;
+  }, new Map<string, CompetitionTeamPlayerRow[]>());
+
+  const upserts = uniqueRefs.flatMap((ref) => {
+    const rawTeamCode = normalizeTeamCode(ref.teamCode);
+    const teamCode = rawTeamCode ? aliases.get(rawTeamCode) ?? rawTeamCode : null;
+    const match = teamCode ? confidentPlayerMatch(rowsByTeam.get(teamCode) ?? [], ref.displayName, ref.shirtNumber) : null;
+    if (!teamCode || !match) return [];
+    return [
+      {
+        provider,
+        provider_player_id: ref.externalId,
+        competition_code: "WC2026",
+        team_code: teamCode,
+        player_id: match.player_id,
+        competition_team_player_id: match.id,
+        confidence: 100,
+        mapping_status: "active",
+        raw_payload: { source: "google_openai_name_match", displayName: ref.displayName, shirtNumber: ref.shirtNumber ?? null },
+      },
+    ];
+  });
+
+  if (upserts.length === 0) return;
+
+  const { error: upsertError } = await supabase
+    .from("provider_player_mappings")
+    .upsert(upserts, { onConflict: "provider,provider_player_id" });
+  if (upsertError) throw new Error(`Could not save provider player mappings: ${upsertError.message}`);
+}
+
 async function stageReport(
   supabase: AdminClient,
   provider: FootballProviderName,
@@ -262,8 +408,9 @@ async function applyCanonicalData(
   report: ProviderPostMatchReport,
   mappings: Map<string, PlayerMappingRow>,
   aliases: Map<string, string>,
+  statuses: Record<string, string>,
 ) {
-  if (report.isFinal && report.homeScore !== null && report.awayScore !== null) {
+  if (statuses.exact_result === "ready" && report.isFinal && report.homeScore !== null && report.awayScore !== null) {
     const { error } = await supabase
       .from("matches")
       .update({
@@ -275,7 +422,7 @@ async function applyCanonicalData(
     if (error) throw new Error(`Could not apply final score: ${error.message}`);
   }
 
-  for (const stat of report.possession) {
+  if (statuses.possession === "ready") for (const stat of report.possession) {
     const { error } = await supabase.from("match_stats").upsert(
       {
         match_id: matchId,
@@ -289,7 +436,9 @@ async function applyCanonicalData(
     if (error) throw new Error(`Could not apply possession stat: ${error.message}`);
   }
 
-  const scorerEvents = report.goalEvents.filter((event) => SCOREABLE_GOAL_TYPES.has(event.eventType));
+  const scorerEvents = statuses.goal_events === "ready"
+    ? report.goalEvents.filter((event) => SCOREABLE_GOAL_TYPES.has(event.eventType))
+    : [];
   for (const event of scorerEvents) {
     const { error } = await supabase.from("match_events").upsert(
       {
@@ -309,7 +458,13 @@ async function applyCanonicalData(
     if (error) throw new Error(`Could not apply goal event: ${error.message}`);
   }
 
-  for (const lineup of report.lineups.filter((player) => player.isStarter)) {
+  const readyLineups = report.lineups.filter(
+    (player) =>
+      player.isStarter &&
+      ((player.teamSide === "home" && statuses.lineup_home === "ready") ||
+        (player.teamSide === "away" && statuses.lineup_away === "ready")),
+  );
+  for (const lineup of readyLineups) {
     const rawTeamCode = normalizeTeamCode(lineup.teamCode);
     const { error } = await supabase.from("match_lineups").upsert(
       {
@@ -330,6 +485,16 @@ async function applyCanonicalData(
     );
     if (error) throw new Error(`Could not apply lineup: ${error.message}`);
   }
+}
+
+function providerCategoryStatus(
+  report: ProviderPostMatchReport,
+  category: ProviderPostMatchReportCategory,
+  fallback: ProviderPostMatchReportCategoryStatus,
+) {
+  const providerStatus = report.categoryStatuses?.[category];
+  if (!providerStatus) return fallback;
+  return providerStatus === "ready" ? fallback : providerStatus;
 }
 
 function validateReport(report: ProviderPostMatchReport, mappings: Map<string, PlayerMappingRow>) {
@@ -355,13 +520,17 @@ function validateReport(report: ProviderPostMatchReport, mappings: Map<string, P
   const lineupAwayReady =
     awayStarters.length === 11 && awayStarters.every((lineup) => mappings.get(lineup.externalId)?.player_id);
 
-  return {
+  const fallbackStatuses = {
     exact_result: readinessStatus(exactReady, !report.isFinal || report.homeScore === null || report.awayScore === null),
     possession: readinessStatus(possessionReady, report.possession.length === 0),
     goal_events: readinessStatus(scorersReady, false),
     lineup_home: readinessStatus(lineupHomeReady, homeStarters.length === 0),
     lineup_away: readinessStatus(lineupAwayReady, awayStarters.length === 0),
-  };
+  } satisfies Record<ProviderPostMatchReportCategory, ProviderPostMatchReportCategoryStatus>;
+
+  return Object.fromEntries(
+    REPORT_CATEGORIES.map((category) => [category, providerCategoryStatus(report, category, fallbackStatuses[category])]),
+  ) as Record<ProviderPostMatchReportCategory, ProviderPostMatchReportCategoryStatus>;
 }
 
 async function updateReadiness(
@@ -457,7 +626,9 @@ async function syncOneMatch(
   const runId = await createSyncRun(supabase, provider.name, match.id);
   const retryCount = (existingState?.retry_count ?? 0) + 1;
 
-  if (!mapping?.provider_match_id || !provider.fetchPostMatchReport) {
+  const providerMatchId = mapping?.provider_match_id ?? (provider.name === "google-openai" ? match.id : null);
+
+  if (!providerMatchId || !provider.fetchPostMatchReport) {
     const statuses = {
       exact_result: "missing",
       possession: "missing",
@@ -470,13 +641,25 @@ async function syncOneMatch(
       status: "needs_review",
       records_processed: 0,
       categories_needing_review: Object.keys(statuses),
-      error_message: "No active provider match mapping or post-match provider implementation.",
+      error_message: provider.name === "google-openai"
+        ? "Google/OpenAI import could not start because match context was unavailable."
+        : "No active provider match mapping or post-match provider implementation.",
     });
     return "needs_review" as const;
   }
 
   try {
-    const report = await provider.fetchPostMatchReport(mapping.provider_match_id);
+    const report = await provider.fetchPostMatchReport(providerMatchId, {
+      matchId: match.id,
+      competitionCode: "WC2026",
+      homeTeamName: match.home_team_name,
+      awayTeamName: match.away_team_name,
+      homeTeamCode: match.home_team_code,
+      awayTeamCode: match.away_team_code,
+      homeCountryCode: match.home_country_code,
+      awayCountryCode: match.away_country_code,
+      kickoffAt: match.kickoff_at,
+    });
     if (!report) {
       const statuses = {
         exact_result: "missing",
@@ -495,19 +678,20 @@ async function syncOneMatch(
       return "needs_review" as const;
     }
 
-    const mappings = await loadPlayerMappings(supabase, provider.name, report);
     const aliases = await loadTeamAliases(supabase, [
       match.home_team_code,
       match.away_team_code,
       match.home_country_code,
       match.away_country_code,
-      ...report.lineups.map((lineup) => lineup.teamCode),
+      ...report.lineups.map((lineup: ProviderLineupPlayer) => lineup.teamCode),
       ...report.goalEvents.map((event: ProviderGoalEvent) => event.player?.teamCode),
     ]);
+    await ensureReportPlayerMappings(supabase, provider.name, report, aliases);
+    const mappings = await loadPlayerMappings(supabase, provider.name, report);
     const statuses = validateReport(report, mappings);
 
     await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
-    await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases);
+    await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
     await updateReadiness(supabase, match.id, statuses);
 
     let scored = false;
@@ -542,6 +726,24 @@ async function syncOneMatch(
 
     return scored ? "scored" : reviewCategories.length > 0 ? "needs_review" : "skipped";
   } catch (error) {
+    if (isGoogleOpenAiConfigurationError(error)) {
+      const statuses = {
+        exact_result: "missing",
+        possession: "missing",
+        goal_events: "missing",
+        lineup_home: "missing",
+        lineup_away: "missing",
+      };
+      await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review");
+      await finishSyncRun(supabase, runId, {
+        status: "needs_review",
+        records_processed: 0,
+        categories_needing_review: Object.keys(statuses),
+        error_message: error.message,
+      });
+      return "needs_review" as const;
+    }
+
     await finishSyncRun(supabase, runId, {
       status: "failed",
       error_message: error instanceof Error ? error.message : "Unknown post-match sync error",
@@ -559,7 +761,7 @@ async function loadEligibleMatches(
   const query = supabase
     .from("matches")
     .select(
-      "id, kickoff_at, status, home_score, away_score, home_team_code, away_team_code, home_country_code, away_country_code, sync_state:match_provider_sync_state(status,next_sync_after,retry_count), provider_match_mappings(provider_match_id,provider,mapping_status)",
+      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, sync_state:match_provider_sync_state(status,next_sync_after,retry_count), provider_match_mappings(provider_match_id,provider,mapping_status)",
     )
     .in("status", ["scheduled", "live", "in_progress", "completed", "finished"])
     .lte("kickoff_at", now.toISOString())
@@ -582,7 +784,7 @@ async function loadEligibleMatches(
       return false;
     }
     const providerMapping = firstRelation(match.provider_match_mappings);
-    return !providerMapping || providerMapping.provider === provider.name;
+    return provider.name === "google-openai" || !providerMapping || providerMapping.provider === provider.name;
   });
 }
 
