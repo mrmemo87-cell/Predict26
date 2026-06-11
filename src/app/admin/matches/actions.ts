@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { updateMatchBonusReadiness, BONUS_READINESS_STATUSES, type BonusReadinessCategory, type BonusReadinessStatus } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
+import { syncFinishedMatches } from "@/lib/football-data/postMatchSync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const MATCH_STATUSES = ["scheduled", "live", "in_progress", "completed", "finished", "postponed", "cancelled"] as const;
@@ -162,6 +163,73 @@ export async function saveMatch(formData: FormData) {
 
   revalidatePath("/admin/matches");
   redirect("/admin/matches?saved=1");
+}
+
+
+export async function syncMatchNow(formData: FormData) {
+  await requireAdminUser("/admin/matches");
+
+  const matchId = optionalString(formData.get("match_id"));
+
+  try {
+    await syncFinishedMatches(undefined, matchId ?? undefined);
+  } catch (error) {
+    console.error("post-match sync failed", error);
+    redirect("/admin/matches?error=sync_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  revalidatePath("/dashboard");
+  revalidatePath("/leaderboard");
+  revalidatePath("/predictions");
+  redirect("/admin/matches?synced=1");
+}
+
+export async function syncFinishedMatchesNow() {
+  await requireAdminUser("/admin/matches");
+
+  try {
+    await syncFinishedMatches();
+  } catch (error) {
+    console.error("finished matches sync failed", error);
+    redirect("/admin/matches?error=sync_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  revalidatePath("/dashboard");
+  revalidatePath("/leaderboard");
+  revalidatePath("/predictions");
+  redirect("/admin/matches?synced=1");
+}
+
+export async function markMatchSyncReviewed(formData: FormData) {
+  const admin = await requireAdminUser("/admin/matches");
+  const matchId = optionalString(formData.get("match_id"));
+
+  if (!matchId) {
+    redirect("/admin/matches?error=invalid_sync_review");
+  }
+
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("match_provider_sync_state")
+    .upsert(
+      {
+        match_id: matchId,
+        status: "corrected_rescored",
+        reviewed_by: admin.id,
+        reviewed_at: new Date().toISOString(),
+      },
+      { onConflict: "match_id" },
+    );
+
+  if (error) {
+    console.error("sync review update failed", { message: error.message, code: error.code });
+    redirect("/admin/matches?error=sync_review_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  redirect("/admin/matches?reviewed=1");
 }
 
 export async function scoreMatch(formData: FormData) {

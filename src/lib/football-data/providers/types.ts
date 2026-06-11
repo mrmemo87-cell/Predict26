@@ -5,6 +5,7 @@ export type ProviderMatchStatus =
   | "in_progress"
   | "live"
   | "completed"
+  | "finished"
   | "postponed"
   | "cancelled";
 
@@ -18,6 +19,7 @@ export type ProviderStadium = {
 };
 
 export type ProviderTeam = {
+  externalId?: string | null;
   name: string;
   code?: string | null;
 };
@@ -34,6 +36,55 @@ export type ProviderMatch = {
   awayScore?: number | null;
 };
 
+export type ProviderPlayerRef = {
+  externalId: string;
+  displayName: string;
+  teamCode?: string | null;
+  shirtNumber?: number | null;
+};
+
+export type ProviderGoalEvent = {
+  externalId: string;
+  teamSide: "home" | "away";
+  player: ProviderPlayerRef | null;
+  eventType: "goal" | "penalty_goal" | "own_goal" | "other_goal";
+  minute?: number | null;
+  stoppageMinute?: number | null;
+  rawPayload?: unknown;
+};
+
+export type ProviderPossessionStat = {
+  teamSide: "home" | "away";
+  percent: number | null;
+  rawPayload?: unknown;
+};
+
+export type ProviderLineupPlayer = {
+  externalId: string;
+  teamSide: "home" | "away";
+  teamCode?: string | null;
+  displayName: string;
+  shirtNumber?: number | null;
+  position?: string | null;
+  isStarter: boolean;
+  lineupSlot?: number | null;
+  rawPayload?: unknown;
+};
+
+export type ProviderPostMatchReport = {
+  providerMatchId: string;
+  status: ProviderMatchStatus;
+  homeScore: number | null;
+  awayScore: number | null;
+  isFinal: boolean;
+  confidence?: number | null;
+  fetchedAt: string;
+  rawPayload?: unknown;
+  goalEvents: ProviderGoalEvent[];
+  possession: ProviderPossessionStat[];
+  lineups: ProviderLineupPlayer[];
+};
+
 export type SyncMatchesResult = {
   provider: FootballProviderName;
   processed: number;
@@ -41,7 +92,16 @@ export type SyncMatchesResult = {
   updated: number;
 };
 
+export type PostMatchSyncResult = {
+  provider: FootballProviderName;
+  processed: number;
+  scored: number;
+  needsReview: number;
+  skipped: number;
+};
+
 export interface FootballDataProvider {
   readonly name: FootballProviderName;
   fetchMatches(): Promise<ProviderMatch[]>;
+  fetchPostMatchReport?(providerMatchId: string): Promise<ProviderPostMatchReport | null>;
 }

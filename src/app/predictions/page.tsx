@@ -582,6 +582,12 @@ export default async function PredictionsPage({
               match.away_country_code ?? awayCode,
               flagLookup,
             );
+            const postMatchMessage = match.status === "finished"
+              ? match.sync_state_status === "fully_scored"
+                ? "Match fully scored · Bonus points added"
+                : "Final score added · Bonus points verifying · Leaderboard updating soon"
+              : null;
+            const lineupLocked = locked || (!!match.kickoff_at && new Date(match.kickoff_at).getTime() - now.getTime() <= 120 * 60_000);
 
             return (
               <article
@@ -630,6 +636,11 @@ export default async function PredictionsPage({
                         <span className="text-gray-900">
                           {savedPredictionLabel}
                         </span>
+                      </p>
+                    )}
+                    {postMatchMessage && (
+                      <p className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800">
+                        {postMatchMessage}
                       </p>
                     )}
                   </div>
@@ -706,7 +717,7 @@ export default async function PredictionsPage({
                       </h3>
                       <p className="mt-1 text-xs text-gray-500">
                         Pick each team&apos;s starting XI in a pitch modal.
-                        Saved only; no lineup scoring yet.
+                        Locks 120 minutes before kickoff; official XIs can be imported after the match.
                       </p>
                     </div>
                     <LineupPredictionModal
@@ -719,7 +730,7 @@ export default async function PredictionsPage({
                       awayPlayers={awaySquad}
                       initialHomePlayerIds={savedLineups.home}
                       initialAwayPlayerIds={savedLineups.away}
-                      locked={locked}
+                      locked={lineupLocked}
                     />
                   </div>
                   <p className="mt-3 text-xs text-gray-500">

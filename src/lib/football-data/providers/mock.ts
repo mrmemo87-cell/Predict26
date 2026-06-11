@@ -40,4 +40,7 @@ export const mockFootballDataProvider: FootballDataProvider = {
   async fetchMatches() {
     return MOCK_MATCHES;
   },
+  async fetchPostMatchReport() {
+    return null;
+  },
 };
