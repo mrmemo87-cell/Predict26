@@ -3,7 +3,7 @@ import "server-only";
 import { getMatchBonusReadiness } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { googleOpenAiFootballDataProvider, isGoogleOpenAiConfigurationError } from "./providers/googleOpenAi";
+import { openAiWebSearchFootballDataProvider, isOpenAiWebSearchConfigurationError } from "./providers/openAiWebSearch";
 import type {
   FootballDataProvider,
   FootballProviderName,
@@ -65,7 +65,7 @@ type CompetitionTeamPlayerRow = {
 
 type ScoringRunRow = { id: string };
 
-const DEFAULT_PROVIDER = googleOpenAiFootballDataProvider;
+const DEFAULT_PROVIDER = openAiWebSearchFootballDataProvider;
 const EXPECTED_FULL_TIME_MINUTES = 120;
 const RETRY_MINUTES = 15;
 const MAX_RETRIES = 12;
@@ -642,7 +642,7 @@ async function syncOneMatch(
       records_processed: 0,
       categories_needing_review: Object.keys(statuses),
       error_message: provider.name === "google-openai"
-        ? "Google/OpenAI import could not start because match context was unavailable."
+        ? "OpenAI web search import could not start because match context was unavailable."
         : "No active provider match mapping or post-match provider implementation.",
     });
     return "needs_review" as const;
@@ -726,7 +726,7 @@ async function syncOneMatch(
 
     return scored ? "scored" : reviewCategories.length > 0 ? "needs_review" : "skipped";
   } catch (error) {
-    if (isGoogleOpenAiConfigurationError(error)) {
+    if (isOpenAiWebSearchConfigurationError(error)) {
       const statuses = {
         exact_result: "missing",
         possession: "missing",
