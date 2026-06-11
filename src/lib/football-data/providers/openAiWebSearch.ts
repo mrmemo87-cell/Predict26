@@ -12,7 +12,6 @@ import type {
   ProviderPossessionStat,
 } from "./types";
 
-const GOOGLE_CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = "gpt-4.1-mini";
 const TRUSTED_SOURCE_LIMIT = 3;
@@ -42,34 +41,24 @@ const CATEGORY_KEYS = [
   "lineup_away",
 ] as const satisfies ProviderPostMatchReportCategory[];
 
-class GoogleOpenAiConfigurationError extends Error {
+class OpenAiWebSearchConfigurationError extends Error {
   constructor() {
-    super("Google/OpenAI import not configured. Set GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID, and OPENAI_API_KEY.");
-    this.name = "GoogleOpenAiConfigurationError";
+    super("OpenAI web search provider is not configured. Set OPENAI_API_KEY.");
+    this.name = "OpenAiWebSearchConfigurationError";
   }
 }
 
-export const isGoogleOpenAiConfigurationError = (error: unknown) =>
-  error instanceof GoogleOpenAiConfigurationError;
-
-type GoogleSearchItem = {
-  title?: string;
-  link?: string;
-  snippet?: string;
-  displayLink?: string;
-};
+export const isOpenAiWebSearchConfigurationError = (error: unknown) =>
+  error instanceof OpenAiWebSearchConfigurationError;
 
 type SourcePage = {
   url: string;
   title: string;
-  snippet: string;
+  snippet?: string;
   host: string;
   label: string;
   priority: number;
-  text: string;
 };
-
-type SearchSource = Omit<SourcePage, "text">;
 
 type ExtractedSource = {
   url: string;
@@ -125,12 +114,12 @@ const normalizeName = (value: string) =>
     .trim()
     .replace(/\s+/g, " ");
 
-const envConfigured = () =>
-  Boolean(
-    process.env.GOOGLE_CUSTOM_SEARCH_API_KEY &&
-      process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID &&
-      process.env.OPENAI_API_KEY,
-  );
+const envConfigured = () => Boolean(process.env.OPENAI_API_KEY);
+
+const matchLabel = (context?: ProviderPostMatchReportContext) => {
+  if (!context) return "World Cup 2026 match";
+  return `${context.homeTeamName} vs ${context.awayTeamName} ${context.kickoffAt?.slice(0, 10) ?? "World Cup 2026"}`;
+};
 
 const hostForUrl = (url: string) => {
   try {
@@ -143,90 +132,13 @@ const hostForUrl = (url: string) => {
 const trustedSourceForHost = (host: string) =>
   TRUSTED_SOURCES.find((source) => host === source.host || host.endsWith(`.${source.host}`));
 
-const isSearchSource = (source: SearchSource | null): source is SearchSource => Boolean(source);
+const trustedDomains = () => TRUSTED_SOURCES.map((source) => source.host);
 
-const trustedSourceQuery = () =>
-  TRUSTED_SOURCES.slice(0, 6)
-    .map((source) => `site:${source.host}`)
-    .join(" OR ");
-
-const matchLabel = (context?: ProviderPostMatchReportContext) => {
-  if (!context) return "World Cup 2026 match";
-  return `${context.homeTeamName} vs ${context.awayTeamName} ${context.kickoffAt?.slice(0, 10) ?? "World Cup 2026"}`;
-};
-
-async function searchTrustedSources(context?: ProviderPostMatchReportContext) {
-  const key = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY;
-  const cx = process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID;
-  if (!key || !cx) throw new GoogleOpenAiConfigurationError();
-
-  const query = `${matchLabel(context)} final score scorers possession lineups (${trustedSourceQuery()})`;
-  const url = new URL(GOOGLE_CSE_ENDPOINT);
-  url.searchParams.set("key", key);
-  url.searchParams.set("cx", cx);
-  url.searchParams.set("q", query);
-  url.searchParams.set("num", "10");
-
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Google Custom Search failed with ${response.status}.`);
-  }
-
-  const payload = (await response.json()) as { items?: GoogleSearchItem[] };
-  return (payload.items ?? [])
-    .map<SearchSource | null>((item) => {
-      const link = item.link ?? "";
-      const host = hostForUrl(link);
-      const trusted = trustedSourceForHost(host);
-      if (!link || !trusted) return null;
-      return {
-        url: link,
-        title: item.title ?? "Untitled result",
-        snippet: item.snippet ?? "",
-        host,
-        label: trusted.label,
-        priority: trusted.priority,
-      } satisfies Omit<SourcePage, "text">;
-    })
-    .filter(isSearchSource)
-    .sort((left, right) => right.priority - left.priority)
-    .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index)
-    .slice(0, TRUSTED_SOURCE_LIMIT);
-}
-
-const htmlToText = (html: string) =>
-  html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 12_000);
-
-async function fetchSourcePage(source: SearchSource): Promise<SourcePage> {
-  try {
-    const response = await fetch(source.url, {
-      cache: "no-store",
-      headers: { "user-agent": "Predict26 post-match provider sync (+https://predict26.app)" },
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) return { ...source, text: source.snippet };
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
-      return { ...source, text: source.snippet };
-    }
-    return { ...source, text: htmlToText(await response.text()) || source.snippet };
-  } catch {
-    return { ...source, text: source.snippet };
-  }
-}
+const trustedSourceLabels = () =>
+  TRUSTED_SOURCES.map((source) => `${source.label} (${source.host})`).join(", ");
 
 const extractionInstructions = (context?: ProviderPostMatchReportContext) => `
-You extract post-match soccer data for Predict26 from trusted public-source search results.
+You extract post-match soccer data for Predict26. Use the built-in web_search tool only; do not rely on any Google Custom Search data, Google sports widgets, paid sports APIs, unsourced knowledge, or live polling loops.
 Return only strict JSON matching this TypeScript shape:
 {
   "isFinal": boolean,
@@ -243,29 +155,58 @@ Return only strict JSON matching this TypeScript shape:
   "conflictingSources": { "exact_result": string[], "possession": string[], "goal_events": string[], "lineup_home": string[], "lineup_away": string[] }
 }
 
+Trusted public sources: ${trustedSourceLabels()}. Prefer FIFA, then ESPN, BBC Sport, Reuters, Sky Sports, and official federation/confederation pages. Search across the trusted domains allowed by the web_search tool. Treat UZ and UZB as the same Uzbekistan team code when matching teams or player sources.
+
 Confidence rules:
 - Final score is ready only when two trusted sources agree, or FIFA alone is clear and no source conflicts.
 - Scorers are ready only when two trusted sources agree, or FIFA alone is clear and no source conflicts.
 - Possession is ready only from FIFA, ESPN, or official stats pages.
 - A lineup side is ready only when exactly 11 starters are found for that team.
 - Mark only the uncertain/conflicting category ambiguous, missing, untrusted, or incomplete; do not downgrade other categories.
-- Never use a Google sports widget or unsourced knowledge.
+- Never use a Google sports widget, Google Custom Search, paid sports API, client-side key, or unsourced knowledge.
 
 Match context: ${JSON.stringify(context ?? {})}
 `;
 
-async function extractWithOpenAi(sources: SourcePage[], context?: ProviderPostMatchReportContext) {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new GoogleOpenAiConfigurationError();
+const responseText = (payload: { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> }) =>
+  payload.output_text ?? payload.output?.flatMap((item) => item.content ?? []).map((content) => content.text ?? "").join("") ?? "";
 
-  const sourceText = sources.map((source) => ({
-    url: source.url,
-    host: source.host,
-    label: source.label,
-    title: source.title,
-    snippet: source.snippet,
-    text: source.text,
-  }));
+type WebSearchSource = {
+  url?: string;
+  title?: string;
+};
+
+type WebSearchOutputItem = {
+  type?: string;
+  action?: {
+    sources?: WebSearchSource[];
+  };
+};
+
+const responseSources = (payload: { output?: WebSearchOutputItem[] }): SourcePage[] =>
+  (payload.output ?? [])
+    .flatMap((item) => item.action?.sources ?? [])
+    .map<SourcePage | null>((source) => {
+      const url = source.url ?? "";
+      const host = hostForUrl(url);
+      const trusted = trustedSourceForHost(host);
+      if (!url || !trusted) return null;
+      return {
+        url,
+        title: source.title ?? "Untitled source",
+        host,
+        label: trusted.label,
+        priority: trusted.priority,
+      };
+    })
+    .filter((source): source is SourcePage => Boolean(source))
+    .sort((left, right) => right.priority - left.priority)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index)
+    .slice(0, TRUSTED_SOURCE_LIMIT);
+
+async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new OpenAiWebSearchConfigurationError();
 
   const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
     method: "POST",
@@ -276,23 +217,38 @@ async function extractWithOpenAi(sources: SourcePage[], context?: ProviderPostMa
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
+      tools: [
+        {
+          type: "web_search",
+          filters: { allowed_domains: trustedDomains() },
+          external_web_access: true,
+        },
+      ],
+      tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
       input: [
         { role: "system", content: extractionInstructions(context) },
-        { role: "user", content: JSON.stringify({ sources: sourceText }) },
+        {
+          role: "user",
+          content: `Find trusted public post-match sources for ${matchLabel(context)}. Compare sources and return only the structured JSON requested.`,
+        },
       ],
       text: { format: { type: "json_object" } },
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI extraction failed with ${response.status}.`);
+    throw new Error(`OpenAI web search extraction failed with ${response.status}.`);
   }
 
-  const payload = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
-  const text = payload.output_text ?? payload.output?.flatMap((item) => item.content ?? []).map((content) => content.text ?? "").join("") ?? "";
-  if (!text) throw new Error("OpenAI extraction returned an empty response.");
+  const payload = (await response.json()) as {
+    output_text?: string;
+    output?: Array<WebSearchOutputItem & { content?: Array<{ text?: string }> }>;
+  };
+  const text = responseText(payload);
+  if (!text) throw new Error("OpenAI web search extraction returned an empty response.");
 
-  return JSON.parse(text) as ExtractedMatchReport;
+  return { extracted: JSON.parse(text) as ExtractedMatchReport, sources: responseSources(payload) };
 }
 
 const safeCategoryStatus = (
@@ -372,13 +328,13 @@ function toProviderReport(
     categoryStatuses,
     categoryConfidence: extracted.categoryConfidence,
     rawPayload: {
-      provider: "google-openai",
+      provider: "openai-web-search",
       model: OPENAI_MODEL,
       sourceSelection: {
-        trustedHosts: TRUSTED_SOURCES.map((source) => source.host),
+        trustedHosts: trustedDomains(),
         selectedSources: sourceRefs(sources),
       },
-      extractionSchema: "google_openai_post_match_v1",
+      extractionSchema: "openai_web_search_post_match_v1",
       categoryReasons: extracted.categoryReasons,
       agreeingSources: extracted.agreeingSources,
       conflictingSources: extracted.conflictingSources,
@@ -390,19 +346,15 @@ function toProviderReport(
   };
 }
 
-export const googleOpenAiFootballDataProvider: FootballDataProvider = {
+export const openAiWebSearchFootballDataProvider: FootballDataProvider = {
   name: "google-openai",
   async fetchMatches(): Promise<ProviderMatch[]> {
     return [];
   },
   async fetchPostMatchReport(providerMatchId, context) {
-    if (!envConfigured()) throw new GoogleOpenAiConfigurationError();
+    if (!envConfigured()) throw new OpenAiWebSearchConfigurationError();
 
-    const searchResults = await searchTrustedSources(context);
-    if (searchResults.length === 0) return null;
-
-    const sources = await Promise.all(searchResults.map(fetchSourcePage));
-    const extracted = await extractWithOpenAi(sources, context);
+    const { extracted, sources } = await extractWithOpenAi(context);
     return toProviderReport(providerMatchId, extracted, sources);
   },
 };
