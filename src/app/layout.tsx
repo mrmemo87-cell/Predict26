@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AppNavigation from "@/components/navigation/AppNavigation";
 
 const siteUrl = "https://predict26.live";
 const siteTitle = "Predict26 — Predict World Cup 2026";
@@ -55,7 +56,10 @@ export default function RootLayout({
       lang="en"
       className="h-full antialiased"
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full overflow-x-hidden flex flex-col">
+        <AppNavigation />
+        {children}
+      </body>
     </html>
   );
 }

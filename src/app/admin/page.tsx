@@ -310,7 +310,7 @@ export default async function AdminPage({
           </span>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Link
             href="/admin/matches"
             className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:border-gold/60 hover:shadow-md"
@@ -356,6 +356,21 @@ export default async function AdminPage({
             <p className="mt-2 text-sm leading-6 text-gray-500">
               Confirm the official champion and explicitly score Champion Pick
               A/B ledger rows.
+            </p>
+          </Link>
+
+          <Link
+            href="/admin/pulse"
+            className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm transition hover:border-gold/60 hover:shadow-md"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold">
+              Pulse
+            </p>
+            <h2 className="mt-3 text-2xl font-bold text-gray-900">
+              Pulse Updates
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              Draft, publish, and pin short World Cup Pulse updates for players.
             </p>
           </Link>
 

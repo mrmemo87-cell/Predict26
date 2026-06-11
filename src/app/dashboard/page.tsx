@@ -5,21 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 import CountryHero from "@/components/dashboard/CountryHero";
 import UpcomingMatches from "@/components/dashboard/UpcomingMatches";
 import PerformanceCard from "@/components/dashboard/PerformanceCard";
-import NewsFeed from "@/components/dashboard/NewsFeed";
+import PulsePreview from "@/components/dashboard/PulsePreview";
 import GroupTables from "@/components/dashboard/GroupTables";
 import UserCountryBadge from "@/components/dashboard/UserCountryBadge";
 import { countryCodesMatch } from "@/lib/domain/countries";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import { fetchWorldCupGroups } from "@/lib/data/groups";
+import { fetchDashboardPulsePosts } from "@/lib/data/pulse";
 import { isConfiguredAdminEmail } from "@/lib/admin/permissions";
 
 export const dynamic = "force-dynamic";
-
-type NewsRow = {
-  id: string;
-  title: string;
-  created_at: string;
-};
 
 type PredictionRow = {
   id: string;
@@ -46,18 +41,14 @@ export default async function DashboardPage() {
     redirect("/login?redirectTo=/dashboard");
   }
 
-  const [profileRes, matches, newsRes, predictionsRes, leaderboardRes, groups] = await Promise.all([
+  const [profileRes, matches, pulsePosts, predictionsRes, leaderboardRes, groups, countriesRes] = await Promise.all([
     supabase
       .from("profiles")
       .select("display_name, username, avatar_url, country_code, points, is_founder, referral_code")
       .eq("id", user.id)
       .maybeSingle(),
     fetchUpcomingPredictionMatches(supabase, 20),
-    supabase
-      .from("world_cup_news")
-      .select("id, title, created_at")
-      .order("created_at", { ascending: false })
-      .limit(5),
+    fetchDashboardPulsePosts(supabase),
     supabase
       .from("predictions")
       .select("id, points, points_awarded, scoring_outcome, scored_at, result_points_applied")
@@ -68,11 +59,12 @@ export default async function DashboardPage() {
       .eq("user_id", user.id)
       .maybeSingle(),
     fetchWorldCupGroups(supabase),
+    supabase.from("countries").select("code, flag_emoji"),
   ]);
 
   const profile = profileRes.data;
   const userCountryCode = profile?.country_code ?? "";
-  const news = (newsRes.error ? [] : (newsRes.data as NewsRow[] | null)) ?? [];
+  const countries = countriesRes.error ? [] : countriesRes.data ?? [];
   const predictions = (predictionsRes.error ? [] : (predictionsRes.data as PredictionRow[] | null)) ?? [];
   const leaderboard = (leaderboardRes.error ? null : (leaderboardRes.data as LeaderboardRow | null)) ?? null;
 
@@ -177,7 +169,7 @@ export default async function DashboardPage() {
 
           <GroupTables groups={groups} userCountryCode={userCountryCode} />
 
-          <NewsFeed news={news} />
+          <PulsePreview posts={pulsePosts} countries={countries} />
 
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
