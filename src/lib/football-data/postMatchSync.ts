@@ -849,6 +849,74 @@ async function syncOneMatch(
       agreeingSources?: Record<string, string[]>;
       conflictingSources?: Record<string, string[]>;
     } | undefined;
+    const rawCategoryReasons = openAiRawPayload?.categoryReasons ?? {};
+    const scorerMapping = {
+      extractedCount: scorerMetadata.length,
+      mappedCount: scorerMetadata.filter((event) => event.mapped).length,
+      unmapped: scorerMetadata
+        .filter((event) => !event.mapped && typeof event.name === "string" && event.name.length > 0)
+        .map((event) => event.name),
+    };
+    const homeLineup = lineupMetadata("home");
+    const awayLineup = lineupMetadata("away");
+    const categoryReasons: Record<string, string> = {
+      ...rawCategoryReasons,
+      goal_events: rawCategoryReasons.goal_events ?? (
+        scorerMetadata.length === 0
+          ? "no trusted scorer data found"
+          : scorerMapping.mappedCount < scorerMapping.extractedCount
+            ? `mapping failed: ${scorerMapping.mappedCount} of ${scorerMapping.extractedCount} mapped`
+            : statuses.goal_events === "ready"
+              ? "ready"
+              : "incomplete"
+      ),
+      lineup_home: rawCategoryReasons.lineup_home ?? (
+        homeLineup.extractedCount === 0
+          ? "no trusted lineup source found"
+          : homeLineup.extractedCount !== homeLineup.expectedCount
+            ? `${homeLineup.extractedCount} of ${homeLineup.expectedCount} extracted`
+            : homeLineup.mappedCount !== homeLineup.expectedCount
+              ? `${homeLineup.mappedCount} of ${homeLineup.expectedCount} mapped`
+              : statuses.lineup_home === "ready"
+                ? "ready"
+                : "incomplete"
+      ),
+      lineup_away: rawCategoryReasons.lineup_away ?? (
+        awayLineup.extractedCount === 0
+          ? "no trusted lineup source found"
+          : awayLineup.extractedCount !== awayLineup.expectedCount
+            ? `${awayLineup.extractedCount} of ${awayLineup.expectedCount} extracted`
+            : awayLineup.mappedCount !== awayLineup.expectedCount
+              ? `${awayLineup.mappedCount} of ${awayLineup.expectedCount} mapped`
+              : statuses.lineup_away === "ready"
+                ? "ready"
+                : "incomplete"
+      ),
+    };
+    const syncMetadata = {
+      sources: openAiRawPayload?.sourceSelection?.selectedSources ?? [],
+      extractionStatus: openAiRawPayload?.sourceSelection?.extractionStatus,
+      sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
+      finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
+      extractedPossession: report.possession,
+      extractedScorers: scorerMetadata,
+      scorerMapping,
+      homeLineup,
+      awayLineup,
+      extractedLineups: {
+        home: homeLineup,
+        away: awayLineup,
+      },
+      categoryReasons,
+      agreeingSources: openAiRawPayload?.agreeingSources ?? {},
+      conflictingSources: openAiRawPayload?.conflictingSources ?? {},
+      exactResultReason: categoryReasons.exact_result,
+      exactResultScored: statuses.exact_result === "ready",
+      exactResultAlreadyScored: exactAlreadyScored,
+      bonusScoringTriggered: newlyReadyBonus,
+      bonusScoringTriggerReason: newlyReadyBonus ? "new_bonus_category_ready" : "no_new_ready_bonus_category",
+      bonusSyncStatus: reviewCategories.length > 0 ? (retryCount >= MAX_RETRIES ? "needs_review" : "retryable") : "complete",
+    };
     await updateSyncState(
       supabase,
       match.id,
@@ -859,27 +927,7 @@ async function syncOneMatch(
       undefined,
       warnings.some((warning) => warning.startsWith("player_mapping_failed")) ? "player_mapping_failed" : undefined,
       warnings,
-      {
-      sources: openAiRawPayload?.sourceSelection?.selectedSources ?? [],
-      extractionStatus: openAiRawPayload?.sourceSelection?.extractionStatus,
-      sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
-      finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
-      extractedPossession: report.possession,
-      extractedScorers: scorerMetadata,
-      extractedLineups: {
-        home: lineupMetadata("home"),
-        away: lineupMetadata("away"),
-      },
-      categoryReasons: openAiRawPayload?.categoryReasons ?? {},
-      agreeingSources: openAiRawPayload?.agreeingSources ?? {},
-      conflictingSources: openAiRawPayload?.conflictingSources ?? {},
-      exactResultReason: openAiRawPayload?.categoryReasons?.exact_result,
-      exactResultScored: statuses.exact_result === "ready",
-      exactResultAlreadyScored: exactAlreadyScored,
-      bonusScoringTriggered: newlyReadyBonus,
-      bonusScoringTriggerReason: newlyReadyBonus ? "new_bonus_category_ready" : "no_new_ready_bonus_category",
-      bonusSyncStatus: reviewCategories.length > 0 ? (retryCount >= MAX_RETRIES ? "needs_review" : "retryable") : "complete",
-      },
+      syncMetadata,
     );
     await finishSyncRun(supabase, runId, {
       status: reviewCategories.length > 0 ? "partial" : "completed",
@@ -888,6 +936,7 @@ async function syncOneMatch(
       categories_ready: categoryList(statuses),
       categories_needing_review: reviewCategories,
       confidence: report.confidence ?? null,
+      metadata: syncMetadata,
     });
 
     return scored ? "scored" : reviewCategories.length > 0 ? "needs_review" : "skipped";
