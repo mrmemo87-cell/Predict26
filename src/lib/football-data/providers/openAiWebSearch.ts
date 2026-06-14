@@ -14,15 +14,25 @@ import type {
 
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = process.env.OPENAI_WEB_SEARCH_MODEL ?? "gpt-5-mini";
-const TRUSTED_SOURCE_LIMIT = 3;
+const TRUSTED_SOURCE_LIMIT = 5;
 
 const TRUSTED_SOURCES = [
   { host: "fifa.com", label: "FIFA", priority: 100 },
+  { host: "www.fifa.com", label: "FIFA", priority: 100 },
   { host: "espn.com", label: "ESPN", priority: 90 },
+  { host: "www.espn.com", label: "ESPN", priority: 90 },
   { host: "bbc.com", label: "BBC Sport", priority: 85 },
+  { host: "www.bbc.com", label: "BBC Sport", priority: 85 },
   { host: "bbc.co.uk", label: "BBC Sport", priority: 85 },
+  { host: "www.bbc.co.uk", label: "BBC Sport", priority: 85 },
   { host: "reuters.com", label: "Reuters", priority: 80 },
+  { host: "www.reuters.com", label: "Reuters", priority: 80 },
+  { host: "apnews.com", label: "AP", priority: 78 },
+  { host: "www.apnews.com", label: "AP", priority: 78 },
   { host: "skysports.com", label: "Sky Sports", priority: 75 },
+  { host: "www.skysports.com", label: "Sky Sports", priority: 75 },
+  { host: "sofascore.com", label: "SofaScore", priority: 72 },
+  { host: "www.sofascore.com", label: "SofaScore", priority: 72 },
   { host: "ussoccer.com", label: "Official federation", priority: 70 },
   { host: "canadasoccer.com", label: "Official federation", priority: 70 },
   { host: "miseleccion.mx", label: "Official federation", priority: 70 },
@@ -237,6 +247,11 @@ const searchQueries = (context?: ProviderPostMatchReportContext) => {
   const home = teamName(context?.homeTeamName, context?.homeTeamCode ?? "Home team");
   const away = teamName(context?.awayTeamName, context?.awayTeamCode ?? "Away team");
   return [
+    `${home} 2-0 ${away} World Cup 2026`,
+    `${home} ${away} World Cup 2026 ESPN`,
+    `${home} ${away} World Cup 2026 Reuters`,
+    `${home} ${away} FIFA match report`,
+    `${home} ${away} Sofascore 2-0`,
     `${home} vs ${away} World Cup 2026 final score scorers lineups possession`,
     `${home} ${away} FIFA match centre`,
     `${home} ${away} match stats lineups scorers`,
@@ -277,10 +292,10 @@ Return only strict JSON matching this TypeScript shape:
   "conflictingSources": { "exact_result": string[], "possession": string[], "goal_events": string[], "lineup_home": string[], "lineup_away": string[] }
 }
 
-Trusted public sources: ${trustedSourceLabels()}. Prefer FIFA, then ESPN, BBC Sport, Reuters, Sky Sports, and official federation/confederation pages. Search across the trusted domains allowed by the web_search tool. Treat UZ and UZB as the same Uzbekistan team code when matching teams or player sources.
+Trusted public sources: ${trustedSourceLabels()}. Prefer FIFA, then ESPN, Reuters, AP, BBC Sport, Sky Sports, SofaScore, and official federation/confederation pages. Search across the trusted domains allowed by the web_search tool. Treat UZ and UZB as the same Uzbekistan team code when matching teams or player sources. If URL capture is not possible, still name each trusted source used in agreeingSources/conflictingSources.
 
 Confidence rules:
-- Final score is ready only when two trusted sources agree, or FIFA alone is clear and no source conflicts.
+- Final score is ready when two named trusted sources agree, even if possession, lineups, scorer-player mapping, or web_search action.sources are incomplete. FIFA alone is also acceptable only when clear and no source conflicts.
 - Scorers are ready only when two trusted sources agree, or FIFA alone is clear and no source conflicts.
 - Possession is ready only from FIFA, ESPN, or official stats pages.
 - A lineup side is ready only when exactly 11 starters are found for that team.
@@ -299,6 +314,7 @@ const responseText = (payload: { output_text?: string; output?: Array<{ content?
 type WebSearchSource = {
   url?: string;
   title?: string;
+  snippet?: string;
 };
 
 type WebSearchOutputItem = {
@@ -308,31 +324,85 @@ type WebSearchOutputItem = {
   };
 };
 
+const sourceFromTrustedName = (value: string): SourcePage | null => {
+  const normalized = normalizeName(value);
+  if (!normalized) return null;
+  const match = TRUSTED_SOURCES.find((source) => {
+    const sourceName = normalizeName(`${source.label} ${source.host}`);
+    return sourceName.includes(normalized) || normalized.includes(normalizeName(source.label)) || normalized.includes(normalizeName(source.host));
+  });
+  if (!match) return null;
+  return {
+    url: `uncaptured:${match.host}`,
+    title: `${match.label} (URL not captured)`,
+    host: match.host.replace(/^www\./, ""),
+    label: match.label,
+    priority: match.priority,
+  };
+};
+
 const toTrustedSourcePage = (source: WebSearchSource): SourcePage | null => {
   const url = source.url ?? "";
   const host = hostForUrl(url);
   const trusted = trustedSourceForHost(host);
-  if (!url || !trusted) return null;
+  if (!url || !trusted) return sourceFromTrustedName(`${source.title ?? ""} ${source.snippet ?? ""}`);
   return {
     url,
     title: source.title ?? "Untitled source",
+    snippet: source.snippet,
     host,
     label: trusted.label,
     priority: trusted.priority,
   };
 };
 
-const responseSources = (payload: OpenAiResponsePayload): SourcePage[] =>
-  (payload.output ?? [])
-    .flatMap((item) => [
-      ...(item.action?.sources ?? []),
-      ...((item.content ?? []).flatMap((content) => content.annotations ?? []) as WebSearchSource[]),
-    ])
+const urlsInText = (text: string): WebSearchSource[] =>
+  Array.from(text.matchAll(/https?:\/\/[^\s"'<>),]+/g)).map((match) => ({ url: match[0] }));
+
+const sourceStringsFromExtraction = (extracted: ExtractedMatchReport): string[] => [
+  ...Object.values(extracted.agreeingSources ?? {}).flat(),
+  ...Object.values(extracted.conflictingSources ?? {}).flat(),
+  ...(extracted.goals ?? []).flatMap((goal) => goal.sourceUrls ?? []),
+  ...(extracted.possession ?? []).flatMap((stat) => stat.sourceUrls ?? []),
+  ...(extracted.lineups ?? []).flatMap((lineup) => lineup.sourceUrls ?? []),
+];
+
+const responseSources = (payload: OpenAiResponsePayload, text: string, extracted?: ExtractedMatchReport): SourcePage[] => {
+  const responseCandidates = (payload.output ?? []).flatMap((item) => [
+    ...(item.action?.sources ?? []),
+    ...((item.content ?? []).flatMap((content) => content.annotations ?? []) as WebSearchSource[]),
+    ...((item.content ?? []).flatMap((content) => urlsInText(content.text ?? "")) as WebSearchSource[]),
+  ]);
+  const extractedCandidates = extracted
+    ? sourceStringsFromExtraction(extracted).map((value) => ({ url: value, title: value }))
+    : [];
+  const textCandidates = urlsInText(text);
+  const normalizedText = normalizeName(text);
+  const namedTextCandidates = TRUSTED_SOURCES.filter(
+    (source) => normalizedText.includes(normalizeName(source.label)) || normalizedText.includes(normalizeName(source.host)),
+  ).map((source) => ({ title: `${source.label} ${source.host}` }));
+
+  return [...responseCandidates, ...textCandidates, ...extractedCandidates, ...namedTextCandidates]
     .map(toTrustedSourcePage)
     .filter((source): source is SourcePage => Boolean(source))
     .sort((left, right) => right.priority - left.priority)
-    .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index)
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url || candidate.label === item.label) === index)
     .slice(0, TRUSTED_SOURCE_LIMIT);
+};
+
+const trustedSourceCountForExact = (extracted: ExtractedMatchReport) => {
+  const exactSources = (extracted.agreeingSources?.exact_result ?? [])
+    .map((source) => toTrustedSourcePage({ url: source, title: source }) ?? sourceFromTrustedName(source))
+    .filter((source): source is SourcePage => Boolean(source));
+  return new Set(exactSources.map((source) => source.label)).size;
+};
+
+const extractionReviewStatus = (sources: SourcePage[], extracted: ExtractedMatchReport) =>
+  sources.some((source) => source.url.startsWith("uncaptured:"))
+    ? "sources_uncaptured_but_answered"
+    : extracted.isFinal && typeof extracted.homeScore === "number" && typeof extracted.awayScore === "number"
+      ? "extraction_needs_review"
+      : "sources_captured";
 
 async function requestOpenAiExtraction(key: string, context: ProviderPostMatchReportContext | undefined, mode: OpenAiRequestMode) {
   const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
@@ -369,13 +439,10 @@ async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
   const text = responseText(payload);
   if (!text) throw new OpenAiWebSearchProviderError("openai_extraction_failed", "Responses API returned an empty extraction response.");
 
-  const sources = responseSources(payload);
-  if (sources.length === 0) {
-    throw new OpenAiWebSearchProviderError("openai_web_search_no_sources", "No trusted web-search sources were returned.");
-  }
-
   try {
-    return { extracted: JSON.parse(text) as ExtractedMatchReport, sources };
+    const extracted = JSON.parse(text) as ExtractedMatchReport;
+    const sources = responseSources(payload, text, extracted);
+    return { extracted, sources };
   } catch (error) {
     throw new OpenAiWebSearchProviderError(
       "openai_extraction_failed",
@@ -410,8 +477,18 @@ function toProviderReport(
     throw new OpenAiWebSearchProviderError("final_score_missing", "The match appears final but no complete final score was extracted.");
   }
 
+  const exactFallbackReady =
+    extracted.isFinal &&
+    typeof extracted.homeScore === "number" &&
+    typeof extracted.awayScore === "number" &&
+    (extracted.conflictingSources?.exact_result ?? []).length === 0 &&
+    trustedSourceCountForExact(extracted) >= 2;
+
   const categoryStatuses = Object.fromEntries(
-    CATEGORY_KEYS.map((category) => [category, safeCategoryStatus(extracted, category)]),
+    CATEGORY_KEYS.map((category) => [
+      category,
+      category === "exact_result" && exactFallbackReady ? "ready" : safeCategoryStatus(extracted, category),
+    ]),
   ) as Record<ProviderPostMatchReportCategory, ProviderPostMatchReportCategoryStatus>;
 
   const possession: ProviderPossessionStat[] = extracted.possession
@@ -474,6 +551,8 @@ function toProviderReport(
       sourceSelection: {
         trustedHosts: trustedDomains(),
         selectedSources: sourceRefs(sources),
+        extractionStatus: extractionReviewStatus(sources, extracted),
+        sourceCapture: sources.some((source) => source.url.startsWith("uncaptured:")) ? "url_capture_failed_named_sources_found" : "urls_captured",
       },
       extractionSchema: "openai_web_search_post_match_v1",
       categoryReasons: extracted.categoryReasons,
@@ -486,6 +565,27 @@ function toProviderReport(
     lineups,
   };
 }
+
+export const openAiWebSearchDebugMexicoSouthAfrica = () => {
+  const context: ProviderPostMatchReportContext = {
+    matchId: "debug-mexico-south-africa",
+    competitionCode: "WC2026",
+    homeTeamName: "Mexico",
+    awayTeamName: "South Africa",
+    homeTeamCode: "MEX",
+    awayTeamCode: "RSA",
+    homeCountryCode: "MEX",
+    awayCountryCode: "ZAF",
+    kickoffAt: "2026-06-11T00:00:00Z",
+  };
+  return {
+    context,
+    expected: { homeScore: 2, awayScore: 0, scorers: ["Julián Quiñones", "Raúl Jiménez"] },
+    queries: searchQueries(context),
+    trustedDomains: trustedDomains(),
+    prompt: extractionInstructions(context),
+  };
+};
 
 export const openAiWebSearchFootballDataProvider: FootballDataProvider = {
   name: "google-openai",

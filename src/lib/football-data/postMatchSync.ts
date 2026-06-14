@@ -771,7 +771,22 @@ async function syncOneMatch(
     }
 
     const reviewCategories = reviewList(statuses);
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, undefined, warnings.length > 0 ? "player_mapping_failed" : undefined, warnings, { sources: (report.rawPayload as { sourceSelection?: { selectedSources?: unknown[] } } | undefined)?.sourceSelection?.selectedSources ?? [] });
+    const openAiRawPayload = report.rawPayload as {
+      sourceSelection?: {
+        selectedSources?: unknown[];
+        extractionStatus?: string;
+        sourceCapture?: string;
+      };
+      categoryReasons?: Record<string, string>;
+    } | undefined;
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, undefined, warnings.length > 0 ? "player_mapping_failed" : undefined, warnings, {
+      sources: openAiRawPayload?.sourceSelection?.selectedSources ?? [],
+      extractionStatus: openAiRawPayload?.sourceSelection?.extractionStatus,
+      sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
+      finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
+      exactResultReason: openAiRawPayload?.categoryReasons?.exact_result,
+      exactResultScored: statuses.exact_result === "ready",
+    });
     await finishSyncRun(supabase, runId, {
       status: reviewCategories.length > 0 ? "partial" : "success",
       records_processed: 1,
