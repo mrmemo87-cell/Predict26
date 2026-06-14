@@ -313,6 +313,14 @@ function LatestSyncRunSummary({
   const reason = typeof stateMetadata.reasonDetails === "string" ? stateMetadata.reasonDetails : typeof runMetadata.detail === "string" ? runMetadata.detail : typeof stateMetadata.reason === "string" ? stateMetadata.reason : typeof runMetadata.reason === "string" ? runMetadata.reason : null;
   const warnings = Array.isArray(stateMetadata.warnings) ? stateMetadata.warnings.filter((item): item is string => typeof item === "string") : [];
   const sources = Array.isArray(stateMetadata.sources) ? stateMetadata.sources : Array.isArray(runMetadata.sources) ? runMetadata.sources : [];
+  const sourceNames = sources
+    .map((source) => metadataRecord(source).label ?? metadataRecord(source).host ?? metadataRecord(source).url)
+    .filter((source): source is string => typeof source === "string" && source.length > 0);
+  const finalScore = metadataRecord(stateMetadata.finalScore);
+  const finalScoreText = typeof finalScore.home === "number" && typeof finalScore.away === "number" ? `${finalScore.home}-${finalScore.away}` : null;
+  const exactResultReason = typeof stateMetadata.exactResultReason === "string" ? stateMetadata.exactResultReason : null;
+  const sourceCapture = typeof stateMetadata.sourceCapture === "string" ? stateMetadata.sourceCapture : null;
+  const extractionStatus = typeof stateMetadata.extractionStatus === "string" ? stateMetadata.extractionStatus : null;
 
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 text-xs">
@@ -363,7 +371,13 @@ function LatestSyncRunSummary({
           {warnings.map((warning) => <li key={warning}>{warning}</li>)}
         </ul>
       )}
-      <p className="mt-2 font-semibold text-gray-600">Sources found: {sources.length}</p>
+      <div className="mt-2 space-y-1 font-semibold text-gray-600">
+        <p>Sources found: {sources.length}{sourceNames.length > 0 ? ` · ${Array.from(new Set(sourceNames)).join(", ")}` : ""}</p>
+        {finalScoreText && <p>Extracted final score: {finalScoreText}</p>}
+        <p>Exact result scoring: {stateMetadata.exactResultScored === true ? "scored / ready" : stateMetadata.exactResultScored === false ? "not scored" : state?.exact_result_status === "ready" ? "ready" : statusLabel(state?.exact_result_status)}</p>
+        {exactResultReason && <p>Exact result reason: {exactResultReason}</p>}
+        {(sourceCapture || extractionStatus) && <p>Source extraction: {[statusLabel(sourceCapture), statusLabel(extractionStatus)].filter(Boolean).join(" · ")}</p>}
+      </div>
       {state?.next_sync_after && (
         <p className="mt-2 font-semibold text-amber-800">
           Next post-match retry after {formatAdminDate(state.next_sync_after)} · retry {state.retry_count ?? 0}
