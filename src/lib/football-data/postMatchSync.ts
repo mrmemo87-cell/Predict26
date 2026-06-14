@@ -587,7 +587,7 @@ async function updateReadiness(
   matchId: string,
   statuses: Record<string, string>,
 ) {
-  const { error } = await supabase.rpc("update_match_bonus_readiness", {
+  const { error } = await supabase.rpc("set_match_bonus_scoring_readiness", {
     p_match_id: matchId,
     p_possession_status: statuses.possession,
     p_goal_events_status: statuses.goal_events,
@@ -749,13 +749,24 @@ async function syncOneMatch(
 
     await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
     await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
-    await updateReadiness(supabase, match.id, statuses);
 
     let scored = false;
     if (statuses.exact_result === "ready") {
       await scoreFinishedMatch(match.id);
       scored = true;
+    }
 
+    let readinessUpdated = false;
+    try {
+      await updateReadiness(supabase, match.id, statuses);
+      readinessUpdated = true;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Could not update bonus readiness";
+      warnings.push(detail);
+      console.warn("bonus readiness update failed after exact/result scoring", error);
+    }
+
+    if (readinessUpdated && statuses.exact_result === "ready") {
       const readiness = await getMatchBonusReadiness(match.id);
       if (
         readiness?.possessionReady &&
@@ -779,14 +790,25 @@ async function syncOneMatch(
       };
       categoryReasons?: Record<string, string>;
     } | undefined;
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, undefined, warnings.length > 0 ? "player_mapping_failed" : undefined, warnings, {
+    await updateSyncState(
+      supabase,
+      match.id,
+      provider.name,
+      runId,
+      statuses,
+      retryCount,
+      undefined,
+      warnings.some((warning) => warning.startsWith("player_mapping_failed")) ? "player_mapping_failed" : undefined,
+      warnings,
+      {
       sources: openAiRawPayload?.sourceSelection?.selectedSources ?? [],
       extractionStatus: openAiRawPayload?.sourceSelection?.extractionStatus,
       sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
       finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
       exactResultReason: openAiRawPayload?.categoryReasons?.exact_result,
       exactResultScored: statuses.exact_result === "ready",
-    });
+      },
+    );
     await finishSyncRun(supabase, runId, {
       status: reviewCategories.length > 0 ? "partial" : "success",
       records_processed: 1,
