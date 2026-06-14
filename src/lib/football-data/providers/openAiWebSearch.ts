@@ -260,23 +260,28 @@ const categorySearchQueries = (context?: ProviderPostMatchReportContext) => {
       `${home} ${away} ESPN stats possession`,
     ],
     goal_events: [
-      `${home} vs ${away} goals scorers World Cup 2026`,
-      `${home} ${away} match report scorers`,
-      `${home} ${away} FIFA match report goals`,
+      `${home} ${away} goals scorers World Cup 2026`,
+      `${home} vs ${away} match report goals`,
+      `${home} ${away} FIFA highlights goals`,
+      `${home} ${away} goal scorers ESPN`,
+      `${home} ${away} Sky Sports goals`,
+      `${home} ${away} SofaScore goals`,
     ],
     lineup_home: [
-      `${home} vs ${away} lineups World Cup 2026`,
-      `${home} ${away} starting XI`,
-      `${home} ${away} confirmed lineups`,
+      `${home} ${away} starting lineups World Cup 2026`,
+      `${home} vs ${away} lineups`,
+      `${home} ${away} confirmed starting XI`,
       `${home} ${away} FIFA lineups`,
       `${home} ${away} ESPN lineups`,
+      `${home} ${away} SofaScore lineups`,
     ],
     lineup_away: [
-      `${home} vs ${away} lineups World Cup 2026`,
-      `${home} ${away} starting XI`,
-      `${home} ${away} confirmed lineups`,
+      `${home} ${away} starting lineups World Cup 2026`,
+      `${home} vs ${away} lineups`,
+      `${home} ${away} confirmed starting XI`,
       `${home} ${away} FIFA lineups`,
       `${home} ${away} ESPN lineups`,
+      `${home} ${away} SofaScore lineups`,
     ],
   } satisfies Record<ProviderPostMatchReportCategory, string[]>;
 };
@@ -320,9 +325,9 @@ Trusted public sources: ${trustedSourceLabels()}. Prefer FIFA, then ESPN, Reuter
 
 Confidence rules:
 - Final score is ready when two named trusted sources agree, even if possession, lineups, scorer-player mapping, or web_search action.sources are incomplete. FIFA alone is also acceptable only when clear and no source conflicts.
-- Scorers are ready only when goal scorers are confidently extracted from trusted match reports. Include normal goals and penalty goals. Label own goals as own_goal so scorer-pick scoring can exclude them.
+- Scorers are ready only when goal scorers are confidently extracted from trusted match reports. For every goal, extract the scorer player name, team side/team code, minute when available, whether it was a penalty, whether it was an own goal, and sourceUrls or named trusted sources. Include normal goals and penalty goals. Label own goals as own_goal so scorer-pick scoring can exclude them. If a trusted source names a scorer but URLs are not captured, put the trusted source name in sourceUrls/agreeingSources rather than dropping the scorer.
 - Possession is ready only when a trusted source gives both teams' possession percentages. Totals of 99, 100, or 101 are acceptable because of rounding; significant source disagreement must mark possession ambiguous.
-- A lineup side is ready only when exactly 11 starters are found for that team; if exactly 11 names are found but 1-2 mappings may be uncertain, still return the names and mark only that lineup side incomplete for admin mapping review.
+- A lineup side is ready only when exactly 11 starters are found for that team. Return all extracted starters even if confidence or mapping may be incomplete; do not silently discard extracted XI data. If exactly 11 names are found but any names may need internal mapping review, still return the names and mark only that lineup side incomplete. Add warnings/reasons explaining no trusted lineup source, too few/many extracted starters, or uncertain names.
 - Mark only the uncertain/conflicting category ambiguous, missing, untrusted, or incomplete; do not downgrade other categories.
 - Never use a Google sports widget, Google Custom Search, paid sports API, client-side key, or unsourced knowledge.
 
