@@ -36,6 +36,10 @@ type EligibleMatchRow = {
     status: string | null;
     next_sync_after: string | null;
     exact_result_status?: string | null;
+    possession_status?: string | null;
+    goal_events_status?: string | null;
+    lineup_home_status?: string | null;
+    lineup_away_status?: string | null;
     retry_count: number | null;
   }> | null;
   provider_match_mappings?: Array<{
@@ -244,6 +248,12 @@ function mappedPlayerId(
   if (!mapping || mapping.mapping_status !== "active") return null;
   return mapping.player_id;
 }
+
+const metadataRecord = (metadata: unknown): Record<string, unknown> =>
+  metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
+
+const metadataStringArray = (metadata: unknown) =>
+  Array.isArray(metadata) ? metadata.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
 
 const normalizePlayerName = (value: string | null | undefined) =>
   value
@@ -785,15 +795,50 @@ async function syncOneMatch(
 
     const exactAlreadyScored = existingState?.exact_result_status === "ready";
     let scored = false;
-    const hasReadyBonus = [statuses.possession, statuses.goal_events, statuses.lineup_home, statuses.lineup_away].some((status) => status === "ready");
+    const newlyReadyBonus = [
+      [statuses.possession, existingState?.possession_status],
+      [statuses.goal_events, existingState?.goal_events_status],
+      [statuses.lineup_home, existingState?.lineup_home_status],
+      [statuses.lineup_away, existingState?.lineup_away_status],
+    ].some(([currentStatus, previousStatus]) => currentStatus === "ready" && previousStatus !== "ready");
     if (statuses.exact_result === "ready" && !exactAlreadyScored) {
       await scoreFinishedMatch(match.id);
       scored = true;
-    } else if (hasReadyBonus) {
+    } else if (newlyReadyBonus) {
       await scoreFinishedMatch(match.id);
     }
 
     const reviewCategories = reviewList(statuses);
+    const scoreableScorers = report.goalEvents.filter((event) => SCOREABLE_GOAL_TYPES.has(event.eventType));
+    const scorerMetadata = scoreableScorers.map((event) => ({
+      name: event.player?.displayName ?? null,
+      teamSide: event.teamSide,
+      eventType: event.eventType,
+      minute: event.minute ?? null,
+      stoppageMinute: event.stoppageMinute ?? null,
+      penalty: event.eventType === "penalty_goal",
+      ownGoal: event.eventType === "own_goal",
+      mapped: Boolean(mappedPlayerId(mappings, event.player?.externalId)),
+      mappedPlayerId: mappedPlayerId(mappings, event.player?.externalId),
+      sources: metadataStringArray(metadataRecord(event.rawPayload).sourceUrls),
+      mappingFailure: event.player?.externalId && !mappedPlayerId(mappings, event.player.externalId) ? "missing_player_mapping" : null,
+    }));
+    const lineupMetadata = (teamSide: "home" | "away") => {
+      const starters = report.lineups.filter((lineup) => lineup.teamSide === teamSide && lineup.isStarter);
+      const mapped = starters.filter((lineup) => mappedPlayerId(mappings, lineup.externalId));
+      return {
+        extractedCount: starters.length,
+        mappedCount: mapped.length,
+        expectedCount: 11,
+        unmapped: starters.filter((lineup) => !mappedPlayerId(mappings, lineup.externalId)).map((lineup) => lineup.displayName),
+        players: starters.map((lineup) => ({
+          name: lineup.displayName,
+          mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)),
+          mappedPlayerId: mappedPlayerId(mappings, lineup.externalId),
+          sources: metadataStringArray(metadataRecord(lineup.rawPayload).sourceUrls),
+        })),
+      };
+    };
     const openAiRawPayload = report.rawPayload as {
       sourceSelection?: {
         selectedSources?: unknown[];
@@ -801,6 +846,8 @@ async function syncOneMatch(
         sourceCapture?: string;
       };
       categoryReasons?: Record<string, string>;
+      agreeingSources?: Record<string, string[]>;
+      conflictingSources?: Record<string, string[]>;
     } | undefined;
     await updateSyncState(
       supabase,
@@ -818,14 +865,19 @@ async function syncOneMatch(
       sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
       finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
       extractedPossession: report.possession,
-      extractedScorers: report.goalEvents.map((event) => ({ name: event.player?.displayName ?? null, teamSide: event.teamSide, eventType: event.eventType, minute: event.minute ?? null, mapped: Boolean(mappedPlayerId(mappings, event.player?.externalId)) })),
+      extractedScorers: scorerMetadata,
       extractedLineups: {
-        home: report.lineups.filter((lineup) => lineup.teamSide === "home" && lineup.isStarter).map((lineup) => ({ name: lineup.displayName, mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)) })),
-        away: report.lineups.filter((lineup) => lineup.teamSide === "away" && lineup.isStarter).map((lineup) => ({ name: lineup.displayName, mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)) })),
+        home: lineupMetadata("home"),
+        away: lineupMetadata("away"),
       },
+      categoryReasons: openAiRawPayload?.categoryReasons ?? {},
+      agreeingSources: openAiRawPayload?.agreeingSources ?? {},
+      conflictingSources: openAiRawPayload?.conflictingSources ?? {},
       exactResultReason: openAiRawPayload?.categoryReasons?.exact_result,
       exactResultScored: statuses.exact_result === "ready",
       exactResultAlreadyScored: exactAlreadyScored,
+      bonusScoringTriggered: newlyReadyBonus,
+      bonusScoringTriggerReason: newlyReadyBonus ? "new_bonus_category_ready" : "no_new_ready_bonus_category",
       bonusSyncStatus: reviewCategories.length > 0 ? (retryCount >= MAX_RETRIES ? "needs_review" : "retryable") : "complete",
       },
     );
@@ -865,7 +917,7 @@ async function loadEligibleMatches(
   const query = supabase
     .from("matches")
     .select(
-      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, venue, city, sync_state:match_provider_sync_state(status,next_sync_after,retry_count,exact_result_status), provider_match_mappings(provider_match_id,provider,mapping_status)",
+      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, venue, city, sync_state:match_provider_sync_state(status,next_sync_after,retry_count,exact_result_status,possession_status,goal_events_status,lineup_home_status,lineup_away_status), provider_match_mappings(provider_match_id,provider,mapping_status)",
     )
     .in("status", ["scheduled", "live", "in_progress", "completed", "finished"])
     .not("kickoff_at", "is", null)

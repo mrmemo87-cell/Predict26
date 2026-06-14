@@ -193,6 +193,25 @@ const metadataRecord = (metadata: unknown): Record<string, unknown> => {
   return {};
 };
 
+
+const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+
+const mappedSummary = (items: unknown[], expectedCount?: number) => {
+  const mapped = items.filter((item) => metadataRecord(item).mapped === true).length;
+  const denominator = expectedCount ?? items.length;
+  return `${mapped}/${denominator}`;
+};
+
+const categoryReason = (metadata: Record<string, unknown>, category: string, fallback: string | null | undefined) => {
+  const reasons = metadataRecord(metadata.categoryReasons);
+  return typeof reasons[category] === "string" ? reasons[category] as string : fallback ?? "unreviewed";
+};
+
+const categorySources = (metadata: Record<string, unknown>, category: string) => {
+  const agreeing = metadataRecord(metadata.agreeingSources);
+  return stringArray(agreeing[category]);
+};
+
 const readinessStatuses = (readiness: BonusReadinessDiagnostics | undefined) => {
   const metadata = readinessMetadata(readiness);
   const statuses = metadata.readiness_statuses;
@@ -460,8 +479,12 @@ function BonusDataReadinessPanel({
   const extractedPossession = Array.isArray(syncMetadata.extractedPossession) ? syncMetadata.extractedPossession : [];
   const extractedScorers = Array.isArray(syncMetadata.extractedScorers) ? syncMetadata.extractedScorers : [];
   const extractedLineups = metadataRecord(syncMetadata.extractedLineups);
-  const homeLineups = Array.isArray(extractedLineups.home) ? extractedLineups.home : [];
-  const awayLineups = Array.isArray(extractedLineups.away) ? extractedLineups.away : [];
+  const homeLineupSummary = metadataRecord(extractedLineups.home);
+  const awayLineupSummary = metadataRecord(extractedLineups.away);
+  const homeLineups = Array.isArray(homeLineupSummary.players) ? homeLineupSummary.players : Array.isArray(extractedLineups.home) ? extractedLineups.home : [];
+  const awayLineups = Array.isArray(awayLineupSummary.players) ? awayLineupSummary.players : Array.isArray(extractedLineups.away) ? extractedLineups.away : [];
+  const homeUnmapped = stringArray(homeLineupSummary.unmapped);
+  const awayUnmapped = stringArray(awayLineupSummary.unmapped);
   const statuses = readinessStatuses(readiness);
   const items: BonusReadinessItem[] = [
     {
@@ -479,30 +502,41 @@ function BonusDataReadinessPanel({
       label: "Scorers/events",
       ready: readiness?.scorersReady ?? false,
       status: statuses.goal_events,
-      reason: readiness?.scorersSkipReason ?? "unreviewed",
-      healthText: `${readiness?.normalGoalEventsCount ?? 0} normal goal events`,
+      reason: categoryReason(syncMetadata, "goal_events", readiness?.scorersSkipReason),
+      healthText: `Extracted ${extractedScorers.length} · mapped ${mappedSummary(extractedScorers)} · ${readiness?.normalGoalEventsCount ?? 0} canonical normal/penalty goal events`,
       notesName: "scorer/event notes",
-      details: extractedScorers.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+      details: [
+        extractedScorers.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}${row.minute ? ` ${row.minute}'` : ""}`; }).join(", "),
+        categorySources(syncMetadata, "goal_events").length > 0 ? `Sources: ${categorySources(syncMetadata, "goal_events").join(", ")}` : "",
+      ].filter(Boolean).join(" · "),
     },
     {
       category: "lineup_home",
       label: "Home lineup",
       ready: readiness?.lineupHomeReady ?? false,
       status: statuses.lineup_home,
-      reason: readiness?.lineupHomeSkipReason ?? "unreviewed",
-      healthText: `${readiness?.officialHomeStartersCount ?? 0}/11 mapped starters`,
+      reason: categoryReason(syncMetadata, "lineup_home", readiness?.lineupHomeSkipReason),
+      healthText: `Extracted ${homeLineupSummary.extractedCount ?? homeLineups.length}/11 · mapped ${homeLineupSummary.mappedCount ?? homeLineups.filter((item) => metadataRecord(item).mapped === true).length}/11`,
       notesName: "home lineup notes",
-      details: homeLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+      details: [
+        homeLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+        homeUnmapped.length > 0 ? `Unmapped: ${homeUnmapped.join(", ")}` : "",
+        categorySources(syncMetadata, "lineup_home").length > 0 ? `Sources: ${categorySources(syncMetadata, "lineup_home").join(", ")}` : "",
+      ].filter(Boolean).join(" · "),
     },
     {
       category: "lineup_away",
       label: "Away lineup",
       ready: readiness?.lineupAwayReady ?? false,
       status: statuses.lineup_away,
-      reason: readiness?.lineupAwaySkipReason ?? "unreviewed",
-      healthText: `${readiness?.officialAwayStartersCount ?? 0}/11 mapped starters`,
+      reason: categoryReason(syncMetadata, "lineup_away", readiness?.lineupAwaySkipReason),
+      healthText: `Extracted ${awayLineupSummary.extractedCount ?? awayLineups.length}/11 · mapped ${awayLineupSummary.mappedCount ?? awayLineups.filter((item) => metadataRecord(item).mapped === true).length}/11`,
       notesName: "away lineup notes",
-      details: awayLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+      details: [
+        awayLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+        awayUnmapped.length > 0 ? `Unmapped: ${awayUnmapped.join(", ")}` : "",
+        categorySources(syncMetadata, "lineup_away").length > 0 ? `Sources: ${categorySources(syncMetadata, "lineup_away").join(", ")}` : "",
+      ].filter(Boolean).join(" · "),
     },
   ];
 
