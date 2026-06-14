@@ -17,6 +17,12 @@ type SearchParams = Promise<{
   already_scored?: string;
   bonus_readiness_saved?: string;
   synced?: string;
+  eligible?: string;
+  processed?: string;
+  remaining?: string;
+  needs_review?: string;
+  failed?: string;
+  skipped?: string;
   reviewed?: string;
   edit?: string;
 }>;
@@ -227,6 +233,44 @@ const syncStatusClasses = (status: string | null | undefined) => {
 
 const latestSyncRun = (match: MatchRow) => firstRelation(match.provider_sync_runs);
 const syncState = (match: MatchRow) => firstRelation(match.sync_state);
+const POST_MATCH_SYNC_MINUTES = 120;
+
+const postMatchReadyAt = (kickoffAt: string | null) => {
+  if (!kickoffAt) return null;
+  const kickoff = new Date(kickoffAt);
+  if (Number.isNaN(kickoff.getTime())) return null;
+  return new Date(kickoff.getTime() + POST_MATCH_SYNC_MINUTES * 60_000);
+};
+
+const syncEligibility = (match: MatchRow, summary: MatchScoringSummary) => {
+  const state = syncState(match);
+  const readyAt = postMatchReadyAt(match.kickoff_at);
+  const now = new Date();
+  const statusAllowed = ["scheduled", "live", "in_progress", "completed", "finished"].includes(match.status ?? "scheduled");
+  const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+
+  if (!readyAt) return { eligible: false, reason: "missing kickoff time", readyAt: null };
+  if (readyAt > now) return { eligible: false, reason: `not ready until ${formatAdminDate(readyAt.toISOString())}`, readyAt };
+  if (!statusAllowed) return { eligible: false, reason: `raw status ${statusLabel(match.status)} is not syncable`, readyAt };
+  if (exactScored || state?.status === "fully_scored") return { eligible: false, reason: "exact result already scored", readyAt };
+  if (state?.next_sync_after && new Date(state.next_sync_after) > now) {
+    return { eligible: false, reason: `waiting for retry window ${formatAdminDate(state.next_sync_after)}`, readyAt };
+  }
+
+  return { eligible: true, reason: "kickoff + full time elapsed and exact result not scored", readyAt };
+};
+
+const operationalStatus = (match: MatchRow, summary: MatchScoringSummary) => {
+  const state = syncState(match);
+  const kickoff = match.kickoff_at ? new Date(match.kickoff_at) : null;
+  const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+  if (exactScored || state?.status === "fully_scored") return state?.status === "bonus_pending" ? "scored · bonus pending" : "scored";
+  if (state?.status === "bonus_pending") return "scored · bonus pending";
+  if (state?.status === "needs_review") return "needs review";
+  if (kickoff && kickoff <= new Date() && match.status === "scheduled") return "kickoff passed · awaiting final data";
+  if (kickoff && kickoff <= new Date()) return "awaiting final data";
+  return "upcoming";
+};
 
 const matchControlGroup = (match: MatchRow, summary: MatchScoringSummary) => {
   const state = syncState(match);
@@ -643,7 +687,7 @@ export default async function AdminMatchManagerPage({
           </div>
           <form action={syncFinishedMatchesNow}>
             <PendingSubmitButton
-              idleText="Sync finished matches now"
+              idleText="Sync next eligible batch"
               pendingText="Syncing..."
               className="w-fit rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-black"
             />
@@ -672,7 +716,7 @@ export default async function AdminMatchManagerPage({
         )}
         {params.synced && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
-            Post-match provider sync queued and processed. Matches with incomplete data were marked for review.
+            Post-match provider sync processed {params.processed ?? "0"} of {params.eligible ?? "0"} eligible matches. Scored exact {params.scored ?? "0"}; needs review {params.needs_review ?? "0"}; failed {params.failed ?? "0"}; skipped {params.skipped ?? "0"}; remaining {params.remaining ?? "0"}.
           </div>
         )}
         {params.reviewed && (
@@ -726,6 +770,8 @@ export default async function AdminMatchManagerPage({
                 match.home_score !== null &&
                 match.away_score !== null;
               const controlGroup = matchControlGroup(match, scoringSummary);
+              const eligibility = syncEligibility(match, scoringSummary);
+              const opStatus = operationalStatus(match, scoringSummary);
               const state = syncState(match);
               const run = latestSyncRun(match);
               const homeLabel = formatFlaggedLabel(
@@ -756,7 +802,7 @@ export default async function AdminMatchManagerPage({
                         className="space-y-1"
                       />
                       <p className="mt-1 uppercase tracking-[0.2em] text-gray-500">
-                        UTC: {formatUtcMatchTime(match.kickoff_at)} · {match.status ?? "scheduled"}
+                        UTC: {formatUtcMatchTime(match.kickoff_at)} · Raw DB status: {match.status ?? "scheduled"}
                       </p>
                     </div>
                     <h3 className="mt-1 text-lg font-bold text-gray-900">
@@ -772,6 +818,12 @@ export default async function AdminMatchManagerPage({
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
                       <span className={`rounded-full border px-2 py-1 font-bold uppercase tracking-[0.14em] ${syncStatusClasses(state?.status)}`}>
                         {controlGroup}
+                      </span>
+                      <span className="rounded-full border border-sky-100 bg-white px-2 py-1 font-semibold text-sky-700">
+                        Operational: {opStatus}
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 font-semibold ${eligibility.eligible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                        Eligible for sync: {eligibility.eligible ? "yes" : `no · ${eligibility.reason}`}
                       </span>
                       <span className="rounded-full border border-gray-200 bg-white px-2 py-1 font-semibold text-gray-600">
                         {isScored ? "Scored" : "Not scored"} · Predictions {scoringSummary.predictions} · Points {scoringSummary.pointsApplied}

@@ -124,9 +124,12 @@ export type SyncMatchesResult = {
 
 export type PostMatchSyncResult = {
   provider: FootballProviderName;
+  eligible: number;
   processed: number;
+  remaining: number;
   scored: number;
   needsReview: number;
+  failed: number;
   skipped: number;
 };
 

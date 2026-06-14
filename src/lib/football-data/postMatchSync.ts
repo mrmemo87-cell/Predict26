@@ -35,6 +35,7 @@ type EligibleMatchRow = {
   sync_state?: Array<{
     status: string | null;
     next_sync_after: string | null;
+    exact_result_status?: string | null;
     retry_count: number | null;
   }> | null;
   provider_match_mappings?: Array<{
@@ -71,6 +72,7 @@ const DEFAULT_PROVIDER = openAiWebSearchFootballDataProvider;
 const EXPECTED_FULL_TIME_MINUTES = 120;
 const RETRY_MINUTES = 15;
 const MAX_RETRIES = 12;
+const POST_MATCH_BATCH_SIZE = 10;
 const FINAL_STATUSES = new Set(["completed", "finished"]);
 const SCOREABLE_GOAL_TYPES = new Set(["goal", "penalty_goal"]);
 const REPORT_CATEGORIES: ProviderPostMatchReportCategory[] = [
@@ -750,12 +752,6 @@ async function syncOneMatch(
     await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
     await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
 
-    let scored = false;
-    if (statuses.exact_result === "ready") {
-      await scoreFinishedMatch(match.id);
-      scored = true;
-    }
-
     let readinessUpdated = false;
     try {
       await updateReadiness(supabase, match.id, statuses);
@@ -766,19 +762,18 @@ async function syncOneMatch(
       console.warn("bonus readiness update failed after exact/result scoring", error);
     }
 
-    if (readinessUpdated && statuses.exact_result === "ready") {
+    if (readinessUpdated) {
       const readiness = await getMatchBonusReadiness(match.id);
-      if (
-        readiness?.possessionReady &&
-        readiness.scorersReady &&
-        readiness.lineupHomeReady &&
-        readiness.lineupAwayReady
-      ) {
-        statuses.possession = "ready";
-        statuses.goal_events = "ready";
-        statuses.lineup_home = "ready";
-        statuses.lineup_away = "ready";
-      }
+      statuses.possession = readiness?.possessionReady ? "ready" : statuses.possession;
+      statuses.goal_events = readiness?.scorersReady ? "ready" : statuses.goal_events;
+      statuses.lineup_home = readiness?.lineupHomeReady ? "ready" : statuses.lineup_home;
+      statuses.lineup_away = readiness?.lineupAwayReady ? "ready" : statuses.lineup_away;
+    }
+
+    let scored = false;
+    if (statuses.exact_result === "ready") {
+      await scoreFinishedMatch(match.id);
+      scored = true;
     }
 
     const reviewCategories = reviewList(statuses);
@@ -810,7 +805,7 @@ async function syncOneMatch(
       },
     );
     await finishSyncRun(supabase, runId, {
-      status: reviewCategories.length > 0 ? "partial" : "success",
+      status: reviewCategories.length > 0 ? "partial" : "completed",
       records_processed: 1,
       records_inserted: 1,
       categories_ready: categoryList(statuses),
@@ -845,31 +840,35 @@ async function loadEligibleMatches(
   const query = supabase
     .from("matches")
     .select(
-      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, venue, city, sync_state:match_provider_sync_state(status,next_sync_after,retry_count), provider_match_mappings(provider_match_id,provider,mapping_status)",
+      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, venue, city, sync_state:match_provider_sync_state(status,next_sync_after,retry_count,exact_result_status), provider_match_mappings(provider_match_id,provider,mapping_status)",
     )
     .in("status", ["scheduled", "live", "in_progress", "completed", "finished"])
-    .lte("kickoff_at", now.toISOString())
+    .not("kickoff_at", "is", null)
+    .lte("kickoff_at", addMinutes(now, -EXPECTED_FULL_TIME_MINUTES).toISOString())
     .order("kickoff_at", { ascending: true })
-    .limit(matchId ? 1 : 25);
+    .limit(matchId ? 1 : 100);
 
   if (matchId) query.eq("id", matchId);
 
   const { data, error } = await query;
   if (error) throw new Error(`Could not load eligible matches: ${error.message}`);
 
-  return ((data ?? []) as unknown as EligibleMatchRow[]).filter((match) => {
-    if (!match.kickoff_at) return false;
+  const eligible = ((data ?? []) as unknown as EligibleMatchRow[]).filter((match) => {
     const existingState = firstRelation(match.sync_state);
-    if (!matchId && existingState?.next_sync_after && new Date(existingState.next_sync_after) > now) {
-      return false;
-    }
+    if (!matchId && existingState?.next_sync_after && new Date(existingState.next_sync_after) > now) return false;
     if (!matchId && (existingState?.retry_count ?? 0) >= MAX_RETRIES) return false;
-    if (!matchId && addMinutes(new Date(match.kickoff_at), EXPECTED_FULL_TIME_MINUTES) > now) {
-      return false;
-    }
+    if (
+      !matchId &&
+      (existingState?.status === "fully_scored" ||
+        existingState?.status === "bonus_pending" ||
+        existingState?.status === "final_score_scored") &&
+      existingState?.exact_result_status === "ready"
+    ) return false;
     const providerMapping = firstRelation(match.provider_match_mappings);
     return provider.name === "google-openai" || !providerMapping || providerMapping.provider === provider.name;
   });
+
+  return { eligible, batch: matchId ? eligible : eligible.slice(0, POST_MATCH_BATCH_SIZE) };
 }
 
 export async function syncFinishedMatches(
@@ -877,21 +876,30 @@ export async function syncFinishedMatches(
   matchId?: string,
 ): Promise<PostMatchSyncResult> {
   const supabase = createAdminClient();
-  const matches = await loadEligibleMatches(supabase, provider, matchId);
+  const { eligible, batch } = await loadEligibleMatches(supabase, provider, matchId);
   const result: PostMatchSyncResult = {
     provider: provider.name,
+    eligible: eligible.length,
     processed: 0,
+    remaining: Math.max(eligible.length - batch.length, 0),
     scored: 0,
     needsReview: 0,
+    failed: 0,
     skipped: 0,
   };
 
-  for (const match of matches) {
-    const status = await syncOneMatch(supabase, provider, match);
-    result.processed += 1;
-    if (status === "scored") result.scored += 1;
-    else if (status === "needs_review") result.needsReview += 1;
-    else result.skipped += 1;
+  for (const match of batch) {
+    try {
+      const status = await syncOneMatch(supabase, provider, match);
+      result.processed += 1;
+      if (status === "scored") result.scored += 1;
+      else if (status === "needs_review") result.needsReview += 1;
+      else result.skipped += 1;
+    } catch (error) {
+      console.error("post-match sync failed for match", { matchId: match.id, error });
+      result.processed += 1;
+      result.failed += 1;
+    }
   }
 
   return result;
