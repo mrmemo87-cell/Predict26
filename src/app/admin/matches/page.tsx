@@ -470,17 +470,22 @@ function BonusDataReadinessPanel({
   matchId,
   readiness,
   state,
+  run,
 }: {
   matchId: string;
   readiness: BonusReadinessDiagnostics | undefined;
   state: MatchSyncStateRow | null;
+  run: ProviderSyncRunRow | null;
 }) {
-  const syncMetadata = metadataRecord(state?.metadata);
+  const stateMetadata = metadataRecord(state?.metadata);
+  const runMetadata = metadataRecord(run?.metadata);
+  const syncMetadata = Object.keys(stateMetadata).length > 0 ? stateMetadata : runMetadata;
   const extractedPossession = Array.isArray(syncMetadata.extractedPossession) ? syncMetadata.extractedPossession : [];
   const extractedScorers = Array.isArray(syncMetadata.extractedScorers) ? syncMetadata.extractedScorers : [];
+  const scorerMapping = metadataRecord(syncMetadata.scorerMapping);
   const extractedLineups = metadataRecord(syncMetadata.extractedLineups);
-  const homeLineupSummary = metadataRecord(extractedLineups.home);
-  const awayLineupSummary = metadataRecord(extractedLineups.away);
+  const homeLineupSummary = Object.keys(metadataRecord(syncMetadata.homeLineup)).length > 0 ? metadataRecord(syncMetadata.homeLineup) : metadataRecord(extractedLineups.home);
+  const awayLineupSummary = Object.keys(metadataRecord(syncMetadata.awayLineup)).length > 0 ? metadataRecord(syncMetadata.awayLineup) : metadataRecord(extractedLineups.away);
   const homeLineups = Array.isArray(homeLineupSummary.players) ? homeLineupSummary.players : Array.isArray(extractedLineups.home) ? extractedLineups.home : [];
   const awayLineups = Array.isArray(awayLineupSummary.players) ? awayLineupSummary.players : Array.isArray(extractedLineups.away) ? extractedLineups.away : [];
   const homeUnmapped = stringArray(homeLineupSummary.unmapped);
@@ -503,10 +508,11 @@ function BonusDataReadinessPanel({
       ready: readiness?.scorersReady ?? false,
       status: statuses.goal_events,
       reason: categoryReason(syncMetadata, "goal_events", readiness?.scorersSkipReason),
-      healthText: `Extracted ${extractedScorers.length} · mapped ${mappedSummary(extractedScorers)} · ${readiness?.normalGoalEventsCount ?? 0} canonical normal/penalty goal events`,
+      healthText: `Extracted ${scorerMapping.extractedCount ?? extractedScorers.length} · mapped ${scorerMapping.mappedCount ?? mappedSummary(extractedScorers)} · ${readiness?.normalGoalEventsCount ?? 0} canonical normal/penalty goal events`,
       notesName: "scorer/event notes",
       details: [
-        extractedScorers.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}${row.minute ? ` ${row.minute}'` : ""}`; }).join(", "),
+        extractedScorers.length > 0 ? extractedScorers.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}${row.minute ? ` ${row.minute}'` : ""}`; }).join(", ") : "No extracted scorer names stored",
+        stringArray(scorerMapping.unmapped).length > 0 ? `Unmapped: ${stringArray(scorerMapping.unmapped).join(", ")}` : "",
         categorySources(syncMetadata, "goal_events").length > 0 ? `Sources: ${categorySources(syncMetadata, "goal_events").join(", ")}` : "",
       ].filter(Boolean).join(" · "),
     },
@@ -555,7 +561,11 @@ function BonusDataReadinessPanel({
               <div>
                 <p className="font-bold text-gray-900">{item.label}</p>
                 <p className="text-xs text-gray-500">{item.healthText}</p>
-                {item.details && <p className="mt-1 max-w-xl text-xs font-semibold text-gray-600">Extracted: {item.details}</p>}
+                {(item.details || (!item.ready && item.status !== "ready")) && (
+                  <p className="mt-1 max-w-xl text-xs font-semibold text-gray-600">
+                    Details: {item.details || item.reason || "No extraction details stored"}
+                  </p>
+                )}
               </div>
               <span className={`rounded-full border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${statusBadgeClasses(item.ready, item.status)}`}>
                 {item.ready ? "ready" : statusLabel(item.status)}
@@ -885,6 +895,7 @@ export default async function AdminMatchManagerPage({
                           matchId={match.id}
                           readiness={bonusReadinessByMatchId[match.id]}
                           state={state}
+                          run={run}
                         />
                       </>
                     )}
