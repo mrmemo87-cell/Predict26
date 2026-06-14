@@ -310,7 +310,7 @@ function LatestSyncRunSummary({
   const hasSyncState = Boolean(state);
   const stateMetadata = metadataRecord(state?.metadata);
   const runMetadata = metadataRecord(run?.metadata);
-  const reason = typeof stateMetadata.reason === "string" ? stateMetadata.reason : typeof runMetadata.reason === "string" ? runMetadata.reason : null;
+  const reason = typeof stateMetadata.reasonDetails === "string" ? stateMetadata.reasonDetails : typeof runMetadata.detail === "string" ? runMetadata.detail : typeof stateMetadata.reason === "string" ? stateMetadata.reason : typeof runMetadata.reason === "string" ? runMetadata.reason : null;
   const warnings = Array.isArray(stateMetadata.warnings) ? stateMetadata.warnings.filter((item): item is string => typeof item === "string") : [];
   const sources = Array.isArray(stateMetadata.sources) ? stateMetadata.sources : Array.isArray(runMetadata.sources) ? runMetadata.sources : [];
 

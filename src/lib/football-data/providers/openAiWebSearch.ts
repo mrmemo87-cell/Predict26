@@ -13,7 +13,7 @@ import type {
 } from "./types";
 
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const OPENAI_MODEL = "gpt-4.1-mini";
+const OPENAI_MODEL = process.env.OPENAI_WEB_SEARCH_MODEL ?? "gpt-5-mini";
 const TRUSTED_SOURCE_LIMIT = 3;
 
 const TRUSTED_SOURCES = [
@@ -73,6 +73,91 @@ export const openAiWebSearchErrorReason = (error: unknown) => {
   if (error instanceof OpenAiWebSearchProviderError) return error.reason;
   return null;
 };
+
+
+type OpenAiErrorResponseBody = {
+  error?: {
+    code?: string | null;
+    message?: string | null;
+    param?: string | null;
+    type?: string | null;
+  };
+};
+
+type OpenAiRequestMode = "primary" | "fallback";
+
+type OpenAiResponsePayload = {
+  output_text?: string;
+  output?: Array<WebSearchOutputItem & { content?: Array<ResponseContentItem> }>;
+};
+
+type ResponseContentItem = {
+  text?: string;
+  annotations?: Array<{
+    type?: string;
+    url?: string;
+    title?: string;
+  }>;
+};
+
+const sanitizeOpenAiErrorValue = (value: unknown) =>
+  typeof value === "string"
+    ? value
+        .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
+        .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-openai-api-key]")
+        .slice(0, 1000)
+    : null;
+
+const parseOpenAiErrorBody = (rawBody: string): OpenAiErrorResponseBody => {
+  try {
+    const parsed = JSON.parse(rawBody) as OpenAiErrorResponseBody;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return { error: { message: rawBody.slice(0, 1000) } };
+  }
+};
+
+const formatOpenAiHttpError = (status: number, rawBody: string) => {
+  const parsed = parseOpenAiErrorBody(rawBody);
+  const error = parsed.error ?? {};
+  const details = {
+    status,
+    code: sanitizeOpenAiErrorValue(error.code),
+    message: sanitizeOpenAiErrorValue(error.message),
+    param: sanitizeOpenAiErrorValue(error.param),
+    type: sanitizeOpenAiErrorValue(error.type),
+  };
+  const parts = [
+    `Responses API returned HTTP ${details.status}`,
+    details.message ? `message: ${details.message}` : null,
+    details.code ? `code: ${details.code}` : null,
+    details.param ? `param: ${details.param}` : null,
+    details.type ? `type: ${details.type}` : null,
+  ].filter(Boolean);
+  return { details, message: parts.join("; ") };
+};
+
+const openAiRequestBody = (context: ProviderPostMatchReportContext | undefined, mode: OpenAiRequestMode) => ({
+  model: OPENAI_MODEL,
+  tools: [
+    mode === "primary"
+      ? {
+          type: "web_search",
+          filters: { allowed_domains: trustedDomains() },
+        }
+      : { type: "web_search" },
+  ],
+  input: [
+    { role: "system", content: extractionInstructions(context) },
+    {
+      role: "user",
+      content:
+        mode === "primary"
+          ? `Find trusted public post-match sources for ${matchLabel(context)} using these queries: ${searchQueries(context).join(" | ")}. Compare sources and return only the structured JSON requested.`
+          : `Search the public web for trusted post-match sources for ${matchLabel(context)}. Prefer these plain domains: ${trustedDomains().join(", ")}. Return JSON only, with source URLs in every sourceUrls/agreeingSources/conflictingSources array.`,
+    },
+  ],
+});
 
 type SourcePage = {
   url: string;
@@ -223,31 +308,33 @@ type WebSearchOutputItem = {
   };
 };
 
-const responseSources = (payload: { output?: WebSearchOutputItem[] }): SourcePage[] =>
+const toTrustedSourcePage = (source: WebSearchSource): SourcePage | null => {
+  const url = source.url ?? "";
+  const host = hostForUrl(url);
+  const trusted = trustedSourceForHost(host);
+  if (!url || !trusted) return null;
+  return {
+    url,
+    title: source.title ?? "Untitled source",
+    host,
+    label: trusted.label,
+    priority: trusted.priority,
+  };
+};
+
+const responseSources = (payload: OpenAiResponsePayload): SourcePage[] =>
   (payload.output ?? [])
-    .flatMap((item) => item.action?.sources ?? [])
-    .map<SourcePage | null>((source) => {
-      const url = source.url ?? "";
-      const host = hostForUrl(url);
-      const trusted = trustedSourceForHost(host);
-      if (!url || !trusted) return null;
-      return {
-        url,
-        title: source.title ?? "Untitled source",
-        host,
-        label: trusted.label,
-        priority: trusted.priority,
-      };
-    })
+    .flatMap((item) => [
+      ...(item.action?.sources ?? []),
+      ...((item.content ?? []).flatMap((content) => content.annotations ?? []) as WebSearchSource[]),
+    ])
+    .map(toTrustedSourcePage)
     .filter((source): source is SourcePage => Boolean(source))
     .sort((left, right) => right.priority - left.priority)
     .filter((item, index, items) => items.findIndex((candidate) => candidate.url === item.url) === index)
     .slice(0, TRUSTED_SOURCE_LIMIT);
 
-async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new OpenAiWebSearchConfigurationError();
-
+async function requestOpenAiExtraction(key: string, context: ProviderPostMatchReportContext | undefined, mode: OpenAiRequestMode) {
   const response = await fetch(OPENAI_RESPONSES_ENDPOINT, {
     method: "POST",
     cache: "no-store",
@@ -255,36 +342,30 @@ async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
       authorization: `Bearer ${key}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      tools: [
-        {
-          type: "web_search",
-          filters: { allowed_domains: trustedDomains() },
-          external_web_access: true,
-        },
-      ],
-      tool_choice: "auto",
-      include: ["web_search_call.action.sources"],
-      input: [
-        { role: "system", content: extractionInstructions(context) },
-        {
-          role: "user",
-          content: `Find trusted public post-match sources for ${matchLabel(context)} using these queries: ${searchQueries(context).join(" | ")}. Compare sources and return only the structured JSON requested.`,
-        },
-      ],
-      text: { format: { type: "json_object" } },
-    }),
+    body: JSON.stringify(openAiRequestBody(context, mode)),
   });
 
   if (!response.ok) {
-    throw new OpenAiWebSearchProviderError("openai_request_failed", `Responses API returned HTTP ${response.status}.`);
+    const error = formatOpenAiHttpError(response.status, await response.text());
+    throw new OpenAiWebSearchProviderError("openai_request_failed", error.message);
   }
 
-  const payload = (await response.json()) as {
-    output_text?: string;
-    output?: Array<WebSearchOutputItem & { content?: Array<{ text?: string }> }>;
-  };
+  return (await response.json()) as OpenAiResponsePayload;
+}
+
+async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new OpenAiWebSearchConfigurationError();
+
+  let payload: OpenAiResponsePayload;
+  try {
+    payload = await requestOpenAiExtraction(key, context, "primary");
+  } catch (error) {
+    if (!(error instanceof OpenAiWebSearchProviderError) || error.reason !== "openai_request_failed" || !error.message.includes("HTTP 400")) {
+      throw error;
+    }
+    payload = await requestOpenAiExtraction(key, context, "fallback");
+  }
   const text = responseText(payload);
   if (!text) throw new OpenAiWebSearchProviderError("openai_extraction_failed", "Responses API returned an empty extraction response.");
 
