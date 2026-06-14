@@ -70,8 +70,8 @@ type ScoringRunRow = { id: string };
 
 const DEFAULT_PROVIDER = openAiWebSearchFootballDataProvider;
 const EXPECTED_FULL_TIME_MINUTES = 120;
-const RETRY_MINUTES = 15;
-const MAX_RETRIES = 12;
+const BONUS_RETRY_DELAYS_MINUTES = [15, 30, 60, 6 * 60, 24 * 60] as const;
+const MAX_RETRIES = BONUS_RETRY_DELAYS_MINUTES.length;
 const POST_MATCH_BATCH_SIZE = 10;
 const FINAL_STATUSES = new Set(["completed", "finished"]);
 const SCOREABLE_GOAL_TYPES = new Set(["goal", "penalty_goal"]);
@@ -90,6 +90,11 @@ const firstRelation = <T>(value: T | T[] | null | undefined): T | null => {
 
 const addMinutes = (date: Date, minutes: number) =>
   new Date(date.getTime() + minutes * 60_000);
+
+const nextRetryAt = (retryCount: number) => {
+  const delay = BONUS_RETRY_DELAYS_MINUTES[Math.min(Math.max(retryCount - 1, 0), BONUS_RETRY_DELAYS_MINUTES.length - 1)];
+  return addMinutes(new Date(), delay).toISOString();
+};
 
 const normalizeTeamCode = (value: string | null | undefined) =>
   value?.trim().toUpperCase() || null;
@@ -555,15 +560,21 @@ function validateReport(report: ProviderPostMatchReport, mappings: Map<string, P
     report.homeScore !== null &&
     report.awayScore !== null;
   const possessionRows = report.possession.filter((stat) => stat.percent !== null);
+  const homePossession = possessionRows.find((stat) => stat.teamSide === "home")?.percent;
+  const awayPossession = possessionRows.find((stat) => stat.teamSide === "away")?.percent;
+  const possessionTotal = (homePossession ?? 0) + (awayPossession ?? 0);
   const possessionReady =
     possessionRows.length === 2 &&
-    possessionRows.some((stat) => stat.teamSide === "home") &&
-    possessionRows.some((stat) => stat.teamSide === "away");
+    typeof homePossession === "number" &&
+    typeof awayPossession === "number" &&
+    possessionTotal >= 99 &&
+    possessionTotal <= 101;
   const scorerEvents = report.goalEvents.filter((event) => SCOREABLE_GOAL_TYPES.has(event.eventType));
   const scorersMapped = scorerEvents.every((event) =>
     event.player?.externalId ? mappings.get(event.player.externalId)?.player_id : false,
   );
-  const scorersReady = scorerEvents.length === 0 || scorersMapped;
+  const providerScorersReady = report.categoryStatuses?.goal_events === "ready";
+  const scorersReady = providerScorersReady && (scorerEvents.length === 0 || scorersMapped);
   const homeStarters = report.lineups.filter((lineup) => lineup.teamSide === "home" && lineup.isStarter);
   const awayStarters = report.lineups.filter((lineup) => lineup.teamSide === "away" && lineup.isStarter);
   const lineupHomeReady =
@@ -639,9 +650,11 @@ async function updateSyncState(
   const status =
     statusOverride ??
     (reviewCategories.length > 0
-      ? statuses.exact_result === "ready"
-        ? "bonus_pending"
-        : "needs_review"
+      ? retryCount >= MAX_RETRIES
+        ? "needs_review"
+        : statuses.exact_result === "ready"
+          ? "bonus_pending"
+          : "needs_review"
       : "fully_scored");
 
   const { error } = await supabase.from("match_provider_sync_state").upsert(
@@ -660,9 +673,9 @@ async function updateSyncState(
       next_sync_after:
         status === "fully_scored" || retryCount >= MAX_RETRIES
           ? null
-          : addMinutes(new Date(), RETRY_MINUTES).toISOString(),
+          : nextRetryAt(retryCount),
       retry_count: retryCount,
-      metadata: { readyCategories, reviewCategories, reason: reason ?? null, warnings, ...extraMetadata },
+      metadata: { readyCategories, reviewCategories, reason: retryCount >= MAX_RETRIES && status !== "fully_scored" ? "bonus_waiting_admin_review" : reason ?? null, warnings, retryScheduleMinutes: BONUS_RETRY_DELAYS_MINUTES, ...extraMetadata },
     },
     { onConflict: "match_id" },
   );
@@ -770,10 +783,14 @@ async function syncOneMatch(
       statuses.lineup_away = readiness?.lineupAwayReady ? "ready" : statuses.lineup_away;
     }
 
+    const exactAlreadyScored = existingState?.exact_result_status === "ready";
     let scored = false;
-    if (statuses.exact_result === "ready") {
+    const hasReadyBonus = [statuses.possession, statuses.goal_events, statuses.lineup_home, statuses.lineup_away].some((status) => status === "ready");
+    if (statuses.exact_result === "ready" && !exactAlreadyScored) {
       await scoreFinishedMatch(match.id);
       scored = true;
+    } else if (hasReadyBonus) {
+      await scoreFinishedMatch(match.id);
     }
 
     const reviewCategories = reviewList(statuses);
@@ -800,8 +817,16 @@ async function syncOneMatch(
       extractionStatus: openAiRawPayload?.sourceSelection?.extractionStatus,
       sourceCapture: openAiRawPayload?.sourceSelection?.sourceCapture,
       finalScore: report.homeScore !== null && report.awayScore !== null ? { home: report.homeScore, away: report.awayScore } : null,
+      extractedPossession: report.possession,
+      extractedScorers: report.goalEvents.map((event) => ({ name: event.player?.displayName ?? null, teamSide: event.teamSide, eventType: event.eventType, minute: event.minute ?? null, mapped: Boolean(mappedPlayerId(mappings, event.player?.externalId)) })),
+      extractedLineups: {
+        home: report.lineups.filter((lineup) => lineup.teamSide === "home" && lineup.isStarter).map((lineup) => ({ name: lineup.displayName, mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)) })),
+        away: report.lineups.filter((lineup) => lineup.teamSide === "away" && lineup.isStarter).map((lineup) => ({ name: lineup.displayName, mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)) })),
+      },
       exactResultReason: openAiRawPayload?.categoryReasons?.exact_result,
       exactResultScored: statuses.exact_result === "ready",
+      exactResultAlreadyScored: exactAlreadyScored,
+      bonusSyncStatus: reviewCategories.length > 0 ? (retryCount >= MAX_RETRIES ? "needs_review" : "retryable") : "complete",
       },
     );
     await finishSyncRun(supabase, runId, {
@@ -859,9 +884,7 @@ async function loadEligibleMatches(
     if (!matchId && (existingState?.retry_count ?? 0) >= MAX_RETRIES) return false;
     if (
       !matchId &&
-      (existingState?.status === "fully_scored" ||
-        existingState?.status === "bonus_pending" ||
-        existingState?.status === "final_score_scored") &&
+      existingState?.status === "fully_scored" &&
       existingState?.exact_result_status === "ready"
     ) return false;
     const providerMapping = firstRelation(match.provider_match_mappings);

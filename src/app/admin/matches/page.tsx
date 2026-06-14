@@ -252,12 +252,12 @@ const syncEligibility = (match: MatchRow, summary: MatchScoringSummary) => {
   if (!readyAt) return { eligible: false, reason: "missing kickoff time", readyAt: null };
   if (readyAt > now) return { eligible: false, reason: `not ready until ${formatAdminDate(readyAt.toISOString())}`, readyAt };
   if (!statusAllowed) return { eligible: false, reason: `raw status ${statusLabel(match.status)} is not syncable`, readyAt };
-  if (exactScored || state?.status === "fully_scored") return { eligible: false, reason: "exact result already scored", readyAt };
+  if (state?.status === "fully_scored") return { eligible: false, reason: "match fully scored", readyAt };
   if (state?.next_sync_after && new Date(state.next_sync_after) > now) {
     return { eligible: false, reason: `waiting for retry window ${formatAdminDate(state.next_sync_after)}`, readyAt };
   }
 
-  return { eligible: true, reason: "kickoff + full time elapsed and exact result not scored", readyAt };
+  return { eligible: true, reason: exactScored || state?.exact_result_status === "ready" ? "exact result scored; bonus sync retryable" : "kickoff + full time elapsed", readyAt };
 };
 
 const operationalStatus = (match: MatchRow, summary: MatchScoringSummary) => {
@@ -402,8 +402,8 @@ function LatestSyncRunSummary({
         ))}
       </div>
       <div className="mt-2 grid gap-1 sm:grid-cols-2">
-        <p className="font-semibold text-gray-600">Exact result readiness: {state?.exact_result_status === "ready" ? "ready to score" : statusLabel(state?.exact_result_status)}</p>
-        <p className="font-semibold text-gray-600">Bonus readiness: {[state?.possession_status, state?.goal_events_status, state?.lineup_home_status, state?.lineup_away_status].every((status) => status === "ready") ? "ready" : "waiting admin review / incomplete"}</p>
+        <p className="font-semibold text-gray-600">Exact result: {stateMetadata.exactResultAlreadyScored === true || stateMetadata.exactResultScored === true || state?.exact_result_status === "ready" ? "scored" : statusLabel(state?.exact_result_status)}</p>
+        <p className="font-semibold text-gray-600">Bonus sync: {typeof stateMetadata.bonusSyncStatus === "string" ? statusLabel(stateMetadata.bonusSyncStatus) : [state?.possession_status, state?.goal_events_status, state?.lineup_home_status, state?.lineup_away_status].every((status) => status === "ready") ? "complete" : "pending / retryable / needs review"}</p>
       </div>
       {reason && (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
@@ -418,7 +418,7 @@ function LatestSyncRunSummary({
       <div className="mt-2 space-y-1 font-semibold text-gray-600">
         <p>Sources found: {sources.length}{sourceNames.length > 0 ? ` · ${Array.from(new Set(sourceNames)).join(", ")}` : ""}</p>
         {finalScoreText && <p>Extracted final score: {finalScoreText}</p>}
-        <p>Exact result scoring: {stateMetadata.exactResultScored === true ? "scored / ready" : stateMetadata.exactResultScored === false ? "not scored" : state?.exact_result_status === "ready" ? "ready" : statusLabel(state?.exact_result_status)}</p>
+        <p>Exact result scoring: {stateMetadata.exactResultAlreadyScored === true ? "already scored; exact rescore skipped" : stateMetadata.exactResultScored === true ? "scored / ready" : stateMetadata.exactResultScored === false ? "not scored" : state?.exact_result_status === "ready" ? "ready" : statusLabel(state?.exact_result_status)}</p>
         {exactResultReason && <p>Exact result reason: {exactResultReason}</p>}
         {(sourceCapture || extractionStatus) && <p>Source extraction: {[statusLabel(sourceCapture), statusLabel(extractionStatus)].filter(Boolean).join(" · ")}</p>}
       </div>
@@ -444,15 +444,24 @@ type BonusReadinessItem = {
   reason: string | null;
   healthText: string;
   notesName: string;
+  details?: string;
 };
 
 function BonusDataReadinessPanel({
   matchId,
   readiness,
+  state,
 }: {
   matchId: string;
   readiness: BonusReadinessDiagnostics | undefined;
+  state: MatchSyncStateRow | null;
 }) {
+  const syncMetadata = metadataRecord(state?.metadata);
+  const extractedPossession = Array.isArray(syncMetadata.extractedPossession) ? syncMetadata.extractedPossession : [];
+  const extractedScorers = Array.isArray(syncMetadata.extractedScorers) ? syncMetadata.extractedScorers : [];
+  const extractedLineups = metadataRecord(syncMetadata.extractedLineups);
+  const homeLineups = Array.isArray(extractedLineups.home) ? extractedLineups.home : [];
+  const awayLineups = Array.isArray(extractedLineups.away) ? extractedLineups.away : [];
   const statuses = readinessStatuses(readiness);
   const items: BonusReadinessItem[] = [
     {
@@ -463,6 +472,7 @@ function BonusDataReadinessPanel({
       reason: readiness?.possessionSkipReason ?? "unreviewed",
       healthText: `Rows H/A ${readiness?.possessionHomeRows ?? 0}/${readiness?.possessionAwayRows ?? 0} · Values ${formatPercent(readiness?.possessionHomePercent ?? null)}/${formatPercent(readiness?.possessionAwayPercent ?? null)}`,
       notesName: "possession notes",
+      details: extractedPossession.map((item) => { const row = metadataRecord(item); return `${statusLabel(typeof row.teamSide === "string" ? row.teamSide : null)} ${formatPercent(typeof row.percent === "number" ? row.percent : null)}`; }).join(" · "),
     },
     {
       category: "goal_events",
@@ -472,6 +482,7 @@ function BonusDataReadinessPanel({
       reason: readiness?.scorersSkipReason ?? "unreviewed",
       healthText: `${readiness?.normalGoalEventsCount ?? 0} normal goal events`,
       notesName: "scorer/event notes",
+      details: extractedScorers.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
     },
     {
       category: "lineup_home",
@@ -481,6 +492,7 @@ function BonusDataReadinessPanel({
       reason: readiness?.lineupHomeSkipReason ?? "unreviewed",
       healthText: `${readiness?.officialHomeStartersCount ?? 0}/11 mapped starters`,
       notesName: "home lineup notes",
+      details: homeLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
     },
     {
       category: "lineup_away",
@@ -490,6 +502,7 @@ function BonusDataReadinessPanel({
       reason: readiness?.lineupAwaySkipReason ?? "unreviewed",
       healthText: `${readiness?.officialAwayStartersCount ?? 0}/11 mapped starters`,
       notesName: "away lineup notes",
+      details: awayLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
     },
   ];
 
@@ -508,6 +521,7 @@ function BonusDataReadinessPanel({
               <div>
                 <p className="font-bold text-gray-900">{item.label}</p>
                 <p className="text-xs text-gray-500">{item.healthText}</p>
+                {item.details && <p className="mt-1 max-w-xl text-xs font-semibold text-gray-600">Extracted: {item.details}</p>}
               </div>
               <span className={`rounded-full border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${statusBadgeClasses(item.ready, item.status)}`}>
                 {item.ready ? "ready" : statusLabel(item.status)}
@@ -836,6 +850,7 @@ export default async function AdminMatchManagerPage({
                         <BonusDataReadinessPanel
                           matchId={match.id}
                           readiness={bonusReadinessByMatchId[match.id]}
+                          state={state}
                         />
                       </>
                     )}
@@ -844,7 +859,7 @@ export default async function AdminMatchManagerPage({
                     <form action={syncMatchNow}>
                       <input type="hidden" name="match_id" value={match.id} />
                       <PendingSubmitButton
-                        idleText="Retry sync"
+                        idleText="Retry bonus sync"
                         pendingText="Syncing..."
                         className="w-fit rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:border-sky-400"
                       />
@@ -871,7 +886,7 @@ export default async function AdminMatchManagerPage({
                       href={`/admin/matches?edit=${match.id}`}
                       className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold"
                     >
-                      Manual final score
+                      Manual review/edit
                     </Link>
                   </div>
                 </article>
