@@ -163,7 +163,7 @@ const openAiRequestBody = (context: ProviderPostMatchReportContext | undefined, 
       role: "user",
       content:
         mode === "primary"
-          ? `Find trusted public post-match sources for ${matchLabel(context)} using these queries: ${searchQueries(context).join(" | ")}. Compare sources and return only the structured JSON requested.`
+          ? `Find trusted public post-match sources for ${matchLabel(context)} using the category-specific queries from the system message. Run separate searches for exact_result, possession, goal_events, lineup_home, and lineup_away. Compare sources and return only the structured JSON requested.`
           : `Search the public web for trusted post-match sources for ${matchLabel(context)}. Prefer these plain domains: ${trustedDomains().join(", ")}. Return JSON only, with source URLs in every sourceUrls/agreeingSources/conflictingSources array.`,
     },
   ],
@@ -243,20 +243,44 @@ const matchLabel = (context?: ProviderPostMatchReportContext) => {
   return `${home} vs ${away} ${context.kickoffAt?.slice(0, 10) ?? "World Cup 2026"}`;
 };
 
-const searchQueries = (context?: ProviderPostMatchReportContext) => {
+const categorySearchQueries = (context?: ProviderPostMatchReportContext) => {
   const home = teamName(context?.homeTeamName, context?.homeTeamCode ?? "Home team");
   const away = teamName(context?.awayTeamName, context?.awayTeamCode ?? "Away team");
-  return [
-    `${home} 2-0 ${away} World Cup 2026`,
-    `${home} ${away} World Cup 2026 ESPN`,
-    `${home} ${away} World Cup 2026 Reuters`,
-    `${home} ${away} FIFA match report`,
-    `${home} ${away} Sofascore 2-0`,
-    `${home} vs ${away} World Cup 2026 final score scorers lineups possession`,
-    `${home} ${away} FIFA match centre`,
-    `${home} ${away} match stats lineups scorers`,
-  ];
+  return {
+    exact_result: [
+      `${home} vs ${away} World Cup 2026 final score`,
+      `${home} ${away} World Cup 2026 ESPN final score`,
+      `${home} ${away} Reuters match report final score`,
+      `${home} ${away} FIFA match report`,
+    ],
+    possession: [
+      `${home} vs ${away} possession stats World Cup 2026`,
+      `${home} ${away} match stats possession`,
+      `${home} ${away} FIFA stats possession`,
+      `${home} ${away} ESPN stats possession`,
+    ],
+    goal_events: [
+      `${home} vs ${away} goals scorers World Cup 2026`,
+      `${home} ${away} match report scorers`,
+      `${home} ${away} FIFA match report goals`,
+    ],
+    lineup_home: [
+      `${home} vs ${away} lineups World Cup 2026`,
+      `${home} ${away} starting XI`,
+      `${home} ${away} confirmed lineups`,
+      `${home} ${away} FIFA lineups`,
+      `${home} ${away} ESPN lineups`,
+    ],
+    lineup_away: [
+      `${home} vs ${away} lineups World Cup 2026`,
+      `${home} ${away} starting XI`,
+      `${home} ${away} confirmed lineups`,
+      `${home} ${away} FIFA lineups`,
+      `${home} ${away} ESPN lineups`,
+    ],
+  } satisfies Record<ProviderPostMatchReportCategory, string[]>;
 };
+
 
 const hostForUrl = (url: string) => {
   try {
@@ -296,16 +320,16 @@ Trusted public sources: ${trustedSourceLabels()}. Prefer FIFA, then ESPN, Reuter
 
 Confidence rules:
 - Final score is ready when two named trusted sources agree, even if possession, lineups, scorer-player mapping, or web_search action.sources are incomplete. FIFA alone is also acceptable only when clear and no source conflicts.
-- Scorers are ready only when two trusted sources agree, or FIFA alone is clear and no source conflicts.
-- Possession is ready only from FIFA, ESPN, or official stats pages.
-- A lineup side is ready only when exactly 11 starters are found for that team.
+- Scorers are ready only when goal scorers are confidently extracted from trusted match reports. Include normal goals and penalty goals. Label own goals as own_goal so scorer-pick scoring can exclude them.
+- Possession is ready only when a trusted source gives both teams' possession percentages. Totals of 99, 100, or 101 are acceptable because of rounding; significant source disagreement must mark possession ambiguous.
+- A lineup side is ready only when exactly 11 starters are found for that team; if exactly 11 names are found but 1-2 mappings may be uncertain, still return the names and mark only that lineup side incomplete for admin mapping review.
 - Mark only the uncertain/conflicting category ambiguous, missing, untrusted, or incomplete; do not downgrade other categories.
 - Never use a Google sports widget, Google Custom Search, paid sports API, client-side key, or unsourced knowledge.
 
 Match context: ${JSON.stringify(context ?? {})}
 
-Search these exact internal-context queries before extracting:
-${searchQueries(context).map((query) => `- ${query}`).join("\n")}
+Search these exact category-specific queries before extracting:
+${Object.entries(categorySearchQueries(context)).map(([category, queries]) => `${category}:\n${queries.map((query) => `- ${query}`).join("\n")}`).join("\n")}
 `;
 
 const responseText = (payload: { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> }) =>
@@ -581,7 +605,7 @@ export const openAiWebSearchDebugMexicoSouthAfrica = () => {
   return {
     context,
     expected: { homeScore: 2, awayScore: 0, scorers: ["Julián Quiñones", "Raúl Jiménez"] },
-    queries: searchQueries(context),
+    queries: categorySearchQueries(context),
     trustedDomains: trustedDomains(),
     prompt: extractionInstructions(context),
   };
