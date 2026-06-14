@@ -95,6 +95,8 @@ export type ProviderPostMatchReportContext = {
   homeCountryCode: string | null;
   awayCountryCode: string | null;
   kickoffAt: string | null;
+  venue?: string | null;
+  city?: string | null;
 };
 
 export type ProviderPostMatchReport = {
