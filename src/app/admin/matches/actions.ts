@@ -171,8 +171,9 @@ export async function syncMatchNow(formData: FormData) {
 
   const matchId = optionalString(formData.get("match_id"));
 
+  let result;
   try {
-    await syncFinishedMatches(undefined, matchId ?? undefined);
+    result = await syncFinishedMatches(undefined, matchId ?? undefined);
   } catch (error) {
     console.error("post-match sync failed", error);
     redirect("/admin/matches?error=sync_failed");
@@ -182,14 +183,15 @@ export async function syncMatchNow(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/leaderboard");
   revalidatePath("/predictions");
-  redirect("/admin/matches?synced=1");
+  redirect(`/admin/matches?synced=1&eligible=${result.eligible}&processed=${result.processed}&remaining=${result.remaining}&scored=${result.scored}&needs_review=${result.needsReview}&failed=${result.failed}&skipped=${result.skipped}`);
 }
 
 export async function syncFinishedMatchesNow() {
   await requireAdminUser("/admin/matches");
 
+  let result;
   try {
-    await syncFinishedMatches();
+    result = await syncFinishedMatches();
   } catch (error) {
     console.error("finished matches sync failed", error);
     redirect("/admin/matches?error=sync_failed");
@@ -199,7 +201,7 @@ export async function syncFinishedMatchesNow() {
   revalidatePath("/dashboard");
   revalidatePath("/leaderboard");
   revalidatePath("/predictions");
-  redirect("/admin/matches?synced=1");
+  redirect(`/admin/matches?synced=1&eligible=${result.eligible}&processed=${result.processed}&remaining=${result.remaining}&scored=${result.scored}&needs_review=${result.needsReview}&failed=${result.failed}&skipped=${result.skipped}`);
 }
 
 export async function markMatchSyncReviewed(formData: FormData) {
