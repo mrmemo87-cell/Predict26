@@ -3,7 +3,7 @@ import "server-only";
 import { getMatchBonusReadiness } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { openAiWebSearchFootballDataProvider, isOpenAiWebSearchConfigurationError } from "./providers/openAiWebSearch";
+import { openAiWebSearchFootballDataProvider, openAiWebSearchErrorReason } from "./providers/openAiWebSearch";
 import type {
   FootballDataProvider,
   FootballProviderName,
@@ -30,6 +30,8 @@ type EligibleMatchRow = {
   away_team_code: string | null;
   home_country_code: string | null;
   away_country_code: string | null;
+  venue: string | null;
+  city: string | null;
   sync_state?: Array<{
     status: string | null;
     next_sync_after: string | null;
@@ -104,6 +106,49 @@ const reviewList = (statuses: Record<string, string>) =>
   Object.entries(statuses)
     .filter(([, status]) => status !== "ready")
     .map(([category]) => category);
+
+type SyncFailureReason =
+  | "openai_api_key_missing"
+  | "openai_request_failed"
+  | "openai_web_search_no_sources"
+  | "openai_extraction_failed"
+  | "final_score_missing"
+  | "final_score_conflict"
+  | "player_mapping_failed"
+  | "structured_provider_mapping_missing";
+
+const missingStatuses = () => ({
+  exact_result: "missing",
+  possession: "missing",
+  goal_events: "missing",
+  lineup_home: "missing",
+  lineup_away: "missing",
+});
+
+const reasonMessage = (reason: SyncFailureReason) => {
+  const messages: Record<SyncFailureReason, string> = {
+    openai_api_key_missing: "openai_api_key_missing: OPENAI_API_KEY is not configured.",
+    openai_request_failed: "openai_request_failed: OpenAI web-search request failed.",
+    openai_web_search_no_sources: "openai_web_search_no_sources: no trusted sources were found.",
+    openai_extraction_failed: "openai_extraction_failed: OpenAI response could not be extracted.",
+    final_score_missing: "final_score_missing: no complete final score was found.",
+    final_score_conflict: "final_score_conflict: trusted sources conflict on the final score.",
+    player_mapping_failed: "player_mapping_failed: player mapping failed; exact result may still be scored.",
+    structured_provider_mapping_missing: "structured_provider_mapping_missing: this structured provider needs active match/team/player mappings before sync.",
+  };
+  return messages[reason];
+};
+
+const syncReasonForError = (provider: FootballProviderName, error: unknown): SyncFailureReason => {
+  const openAiReason = provider === "google-openai" ? openAiWebSearchErrorReason(error) : null;
+  if (openAiReason) return openAiReason;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("player mapping") || message.includes("provider_player_mappings")) return "player_mapping_failed";
+  if (message.includes("conflict") && message.includes("score")) return "final_score_conflict";
+  if (message.includes("score")) return "final_score_missing";
+  return provider === "google-openai" ? "openai_extraction_failed" : "structured_provider_mapping_missing";
+};
 
 async function createSyncRun(
   supabase: AdminClient,
@@ -578,6 +623,9 @@ async function updateSyncState(
   statuses: Record<string, string>,
   retryCount: number,
   statusOverride?: string,
+  reason?: SyncFailureReason,
+  warnings: string[] = [],
+  extraMetadata: Record<string, unknown> = {},
 ) {
   const reviewCategories = reviewList(statuses);
   const readyCategories = categoryList(statuses);
@@ -608,7 +656,7 @@ async function updateSyncState(
           ? null
           : addMinutes(new Date(), RETRY_MINUTES).toISOString(),
       retry_count: retryCount,
-      metadata: { readyCategories, reviewCategories },
+      metadata: { readyCategories, reviewCategories, reason: reason ?? null, warnings, ...extraMetadata },
     },
     { onConflict: "match_id" },
   );
@@ -626,24 +674,19 @@ async function syncOneMatch(
   const runId = await createSyncRun(supabase, provider.name, match.id);
   const retryCount = (existingState?.retry_count ?? 0) + 1;
 
-  const providerMatchId = mapping?.provider_match_id ?? (provider.name === "google-openai" ? match.id : null);
+  const isOpenAiWebSearch = provider.name === "google-openai";
+  const providerMatchId = mapping?.provider_match_id ?? (isOpenAiWebSearch ? match.id : null);
 
   if (!providerMatchId || !provider.fetchPostMatchReport) {
-    const statuses = {
-      exact_result: "missing",
-      possession: "missing",
-      goal_events: "missing",
-      lineup_home: "missing",
-      lineup_away: "missing",
-    };
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review");
+    const statuses = missingStatuses();
+    const reason: SyncFailureReason = isOpenAiWebSearch ? "openai_extraction_failed" : "structured_provider_mapping_missing";
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason);
     await finishSyncRun(supabase, runId, {
       status: "needs_review",
       records_processed: 0,
       categories_needing_review: Object.keys(statuses),
-      error_message: provider.name === "google-openai"
-        ? "OpenAI web search import could not start because match context was unavailable."
-        : "No active provider match mapping or post-match provider implementation.",
+      error_message: reasonMessage(reason),
+      metadata: { reason },
     });
     return "needs_review" as const;
   }
@@ -659,21 +702,19 @@ async function syncOneMatch(
       homeCountryCode: match.home_country_code,
       awayCountryCode: match.away_country_code,
       kickoffAt: match.kickoff_at,
+      venue: match.venue,
+      city: match.city,
     });
     if (!report) {
-      const statuses = {
-        exact_result: "missing",
-        possession: "missing",
-        goal_events: "missing",
-        lineup_home: "missing",
-        lineup_away: "missing",
-      };
-      await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "awaiting_final_data");
+      const statuses = missingStatuses();
+      const reason: SyncFailureReason = isOpenAiWebSearch ? "openai_web_search_no_sources" : "final_score_missing";
+      await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "awaiting_final_data", reason);
       await finishSyncRun(supabase, runId, {
         status: "needs_review",
         records_processed: 0,
         categories_needing_review: Object.keys(statuses),
-        error_message: "Provider did not return a post-match report yet.",
+        error_message: reasonMessage(reason),
+        metadata: { reason },
       });
       return "needs_review" as const;
     }
@@ -686,8 +727,20 @@ async function syncOneMatch(
       ...report.lineups.map((lineup: ProviderLineupPlayer) => lineup.teamCode),
       ...report.goalEvents.map((event: ProviderGoalEvent) => event.player?.teamCode),
     ]);
-    await ensureReportPlayerMappings(supabase, provider.name, report, aliases);
-    const mappings = await loadPlayerMappings(supabase, provider.name, report);
+    const warnings: string[] = [];
+    try {
+      await ensureReportPlayerMappings(supabase, provider.name, report, aliases);
+    } catch (error) {
+      warnings.push(reasonMessage("player_mapping_failed"));
+      console.warn("provider player auto-mapping failed", error);
+    }
+    let mappings = new Map<string, PlayerMappingRow>();
+    try {
+      mappings = await loadPlayerMappings(supabase, provider.name, report);
+    } catch (error) {
+      warnings.push(reasonMessage("player_mapping_failed"));
+      console.warn("provider player mapping load failed", error);
+    }
     const statuses = validateReport(report, mappings);
 
     await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
@@ -714,7 +767,7 @@ async function syncOneMatch(
     }
 
     const reviewCategories = reviewList(statuses);
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount);
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, undefined, warnings.length > 0 ? "player_mapping_failed" : undefined, warnings, { sources: (report.rawPayload as { sourceSelection?: { selectedSources?: unknown[] } } | undefined)?.sourceSelection?.selectedSources ?? [] });
     await finishSyncRun(supabase, runId, {
       status: reviewCategories.length > 0 ? "partial" : "success",
       records_processed: 1,
@@ -726,28 +779,17 @@ async function syncOneMatch(
 
     return scored ? "scored" : reviewCategories.length > 0 ? "needs_review" : "skipped";
   } catch (error) {
-    if (isOpenAiWebSearchConfigurationError(error)) {
-      const statuses = {
-        exact_result: "missing",
-        possession: "missing",
-        goal_events: "missing",
-        lineup_home: "missing",
-        lineup_away: "missing",
-      };
-      await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review");
-      await finishSyncRun(supabase, runId, {
-        status: "needs_review",
-        records_processed: 0,
-        categories_needing_review: Object.keys(statuses),
-        error_message: error.message,
-      });
-      return "needs_review" as const;
-    }
-
+    const statuses = missingStatuses();
+    const reason = syncReasonForError(provider.name, error);
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason, [error instanceof Error ? error.message : reasonMessage(reason)]);
     await finishSyncRun(supabase, runId, {
-      status: "failed",
-      error_message: error instanceof Error ? error.message : "Unknown post-match sync error",
+      status: provider.name === "google-openai" ? "needs_review" : "failed",
+      records_processed: 0,
+      categories_needing_review: Object.keys(statuses),
+      error_message: reasonMessage(reason),
+      metadata: { reason, detail: error instanceof Error ? error.message : null },
     });
+    if (provider.name === "google-openai") return "needs_review" as const;
     throw error;
   }
 }
@@ -761,7 +803,7 @@ async function loadEligibleMatches(
   const query = supabase
     .from("matches")
     .select(
-      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, sync_state:match_provider_sync_state(status,next_sync_after,retry_count), provider_match_mappings(provider_match_id,provider,mapping_status)",
+      "id, competition_id, kickoff_at, status, home_score, away_score, home_team_name, away_team_name, home_team_code, away_team_code, home_country_code, away_country_code, venue, city, sync_state:match_provider_sync_state(status,next_sync_after,retry_count), provider_match_mappings(provider_match_id,provider,mapping_status)",
     )
     .in("status", ["scheduled", "live", "in_progress", "completed", "finished"])
     .lte("kickoff_at", now.toISOString())

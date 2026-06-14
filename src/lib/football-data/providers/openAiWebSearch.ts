@@ -42,14 +42,37 @@ const CATEGORY_KEYS = [
 ] as const satisfies ProviderPostMatchReportCategory[];
 
 class OpenAiWebSearchConfigurationError extends Error {
+  reason = "openai_api_key_missing" as const;
+
   constructor() {
-    super("OpenAI web search provider is not configured. Set OPENAI_API_KEY.");
+    super("openai_api_key_missing: OPENAI_API_KEY is not configured.");
     this.name = "OpenAiWebSearchConfigurationError";
+  }
+}
+
+export class OpenAiWebSearchProviderError extends Error {
+  constructor(
+    public readonly reason:
+      | "openai_request_failed"
+      | "openai_web_search_no_sources"
+      | "openai_extraction_failed"
+      | "final_score_missing"
+      | "final_score_conflict",
+    message: string,
+  ) {
+    super(`${reason}: ${message}`);
+    this.name = "OpenAiWebSearchProviderError";
   }
 }
 
 export const isOpenAiWebSearchConfigurationError = (error: unknown) =>
   error instanceof OpenAiWebSearchConfigurationError;
+
+export const openAiWebSearchErrorReason = (error: unknown) => {
+  if (error instanceof OpenAiWebSearchConfigurationError) return error.reason;
+  if (error instanceof OpenAiWebSearchProviderError) return error.reason;
+  return null;
+};
 
 type SourcePage = {
   url: string;
@@ -116,9 +139,23 @@ const normalizeName = (value: string) =>
 
 const envConfigured = () => Boolean(process.env.OPENAI_API_KEY);
 
+const teamName = (value: string | null | undefined, fallback: string) => value?.trim() || fallback;
+
 const matchLabel = (context?: ProviderPostMatchReportContext) => {
   if (!context) return "World Cup 2026 match";
-  return `${context.homeTeamName} vs ${context.awayTeamName} ${context.kickoffAt?.slice(0, 10) ?? "World Cup 2026"}`;
+  const home = teamName(context.homeTeamName, context.homeTeamCode ?? "Home team");
+  const away = teamName(context.awayTeamName, context.awayTeamCode ?? "Away team");
+  return `${home} vs ${away} ${context.kickoffAt?.slice(0, 10) ?? "World Cup 2026"}`;
+};
+
+const searchQueries = (context?: ProviderPostMatchReportContext) => {
+  const home = teamName(context?.homeTeamName, context?.homeTeamCode ?? "Home team");
+  const away = teamName(context?.awayTeamName, context?.awayTeamCode ?? "Away team");
+  return [
+    `${home} vs ${away} World Cup 2026 final score scorers lineups possession`,
+    `${home} ${away} FIFA match centre`,
+    `${home} ${away} match stats lineups scorers`,
+  ];
 };
 
 const hostForUrl = (url: string) => {
@@ -166,6 +203,9 @@ Confidence rules:
 - Never use a Google sports widget, Google Custom Search, paid sports API, client-side key, or unsourced knowledge.
 
 Match context: ${JSON.stringify(context ?? {})}
+
+Search these exact internal-context queries before extracting:
+${searchQueries(context).map((query) => `- ${query}`).join("\n")}
 `;
 
 const responseText = (payload: { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> }) =>
@@ -230,7 +270,7 @@ async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
         { role: "system", content: extractionInstructions(context) },
         {
           role: "user",
-          content: `Find trusted public post-match sources for ${matchLabel(context)}. Compare sources and return only the structured JSON requested.`,
+          content: `Find trusted public post-match sources for ${matchLabel(context)} using these queries: ${searchQueries(context).join(" | ")}. Compare sources and return only the structured JSON requested.`,
         },
       ],
       text: { format: { type: "json_object" } },
@@ -238,7 +278,7 @@ async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI web search extraction failed with ${response.status}.`);
+    throw new OpenAiWebSearchProviderError("openai_request_failed", `Responses API returned HTTP ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -246,9 +286,21 @@ async function extractWithOpenAi(context?: ProviderPostMatchReportContext) {
     output?: Array<WebSearchOutputItem & { content?: Array<{ text?: string }> }>;
   };
   const text = responseText(payload);
-  if (!text) throw new Error("OpenAI web search extraction returned an empty response.");
+  if (!text) throw new OpenAiWebSearchProviderError("openai_extraction_failed", "Responses API returned an empty extraction response.");
 
-  return { extracted: JSON.parse(text) as ExtractedMatchReport, sources: responseSources(payload) };
+  const sources = responseSources(payload);
+  if (sources.length === 0) {
+    throw new OpenAiWebSearchProviderError("openai_web_search_no_sources", "No trusted web-search sources were returned.");
+  }
+
+  try {
+    return { extracted: JSON.parse(text) as ExtractedMatchReport, sources };
+  } catch (error) {
+    throw new OpenAiWebSearchProviderError(
+      "openai_extraction_failed",
+      error instanceof Error ? error.message : "Could not parse structured extraction JSON.",
+    );
+  }
 }
 
 const safeCategoryStatus = (
@@ -269,6 +321,14 @@ function toProviderReport(
   extracted: ExtractedMatchReport,
   sources: SourcePage[],
 ): ProviderPostMatchReport {
+  if (extracted.categoryStatus?.exact_result === "ambiguous" || (extracted.conflictingSources?.exact_result ?? []).length > 0) {
+    throw new OpenAiWebSearchProviderError("final_score_conflict", "Trusted sources conflict on the final score.");
+  }
+
+  if (extracted.isFinal && (typeof extracted.homeScore !== "number" || typeof extracted.awayScore !== "number")) {
+    throw new OpenAiWebSearchProviderError("final_score_missing", "The match appears final but no complete final score was extracted.");
+  }
+
   const categoryStatuses = Object.fromEntries(
     CATEGORY_KEYS.map((category) => [category, safeCategoryStatus(extracted, category)]),
   ) as Record<ProviderPostMatchReportCategory, ProviderPostMatchReportCategoryStatus>;

@@ -58,6 +58,8 @@ type MatchSyncStateRow = {
   last_synced_at: string | null;
   next_sync_after: string | null;
   retry_count: number | null;
+  provider: string | null;
+  metadata: unknown;
 };
 
 type ProviderSyncRunRow = {
@@ -67,6 +69,8 @@ type ProviderSyncRunRow = {
   categories_ready: string[] | null;
   categories_needing_review: string[] | null;
   error_message: string | null;
+  provider: string | null;
+  metadata: unknown;
 };
 
 type MatchScoringSummary = {
@@ -157,7 +161,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   report_save_failed: "Could not update that report. Please try again.",
   invalid_bonus_readiness: "Choose a valid bonus readiness status before saving.",
   bonus_readiness_failed: "Could not update bonus data readiness. Please try again.",
-  sync_failed: "Could not sync provider data. Check mappings and try again.",
+  sync_failed: "Could not sync provider data. See the match sync panel for the specific provider reason.",
   invalid_sync_review: "Choose a valid match before marking it reviewed.",
   sync_review_failed: "Could not mark this match reviewed. Please try again.",
 };
@@ -304,6 +308,11 @@ function LatestSyncRunSummary({
   run: ProviderSyncRunRow | null;
 }) {
   const hasSyncState = Boolean(state);
+  const stateMetadata = metadataRecord(state?.metadata);
+  const runMetadata = metadataRecord(run?.metadata);
+  const reason = typeof stateMetadata.reason === "string" ? stateMetadata.reason : typeof runMetadata.reason === "string" ? runMetadata.reason : null;
+  const warnings = Array.isArray(stateMetadata.warnings) ? stateMetadata.warnings.filter((item): item is string => typeof item === "string") : [];
+  const sources = Array.isArray(stateMetadata.sources) ? stateMetadata.sources : Array.isArray(runMetadata.sources) ? runMetadata.sources : [];
 
   return (
     <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 text-xs">
@@ -314,6 +323,11 @@ function LatestSyncRunSummary({
         {state?.last_synced_at && (
           <span className="font-semibold text-gray-500">
             Latest sync {formatAdminDate(state.last_synced_at)}
+          </span>
+        )}
+        {(state?.provider || run?.provider) && (
+          <span className="rounded-full border border-sky-100 bg-sky-50 px-2 py-1 font-semibold text-sky-700">
+            Provider {state?.provider ?? run?.provider}
           </span>
         )}
         {run?.status && (
@@ -335,6 +349,21 @@ function LatestSyncRunSummary({
           </span>
         ))}
       </div>
+      <div className="mt-2 grid gap-1 sm:grid-cols-2">
+        <p className="font-semibold text-gray-600">Exact result readiness: {state?.exact_result_status === "ready" ? "ready to score" : statusLabel(state?.exact_result_status)}</p>
+        <p className="font-semibold text-gray-600">Bonus readiness: {[state?.possession_status, state?.goal_events_status, state?.lineup_home_status, state?.lineup_away_status].every((status) => status === "ready") ? "ready" : "waiting admin review / incomplete"}</p>
+      </div>
+      {reason && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
+          Reason: {statusLabel(reason)}
+        </p>
+      )}
+      {warnings.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold text-amber-900">
+          {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+        </ul>
+      )}
+      <p className="mt-2 font-semibold text-gray-600">Sources found: {sources.length}</p>
       {state?.next_sync_after && (
         <p className="mt-2 font-semibold text-amber-800">
           Next post-match retry after {formatAdminDate(state.next_sync_after)} · retry {state.retry_count ?? 0}
@@ -487,7 +516,7 @@ export default async function AdminMatchManagerPage({
     supabase
       .from("matches")
       .select(
-        "id, competition_id, home_team_name, away_team_name, home_team_code, away_team_code, kickoff_at, status, stadium_id, venue, city, home_score, away_score, match_number, stage, stadiums(name, city), sync_state:match_provider_sync_state(status,exact_result_status,possession_status,goal_events_status,lineup_home_status,lineup_away_status,last_synced_at,next_sync_after,retry_count), provider_sync_runs(status,started_at,finished_at,categories_ready,categories_needing_review,error_message)",
+        "id, competition_id, home_team_name, away_team_name, home_team_code, away_team_code, kickoff_at, status, stadium_id, venue, city, home_score, away_score, match_number, stage, stadiums(name, city), sync_state:match_provider_sync_state(provider,status,exact_result_status,possession_status,goal_events_status,lineup_home_status,lineup_away_status,last_synced_at,next_sync_after,retry_count,metadata), provider_sync_runs(provider,status,started_at,finished_at,categories_ready,categories_needing_review,error_message,metadata)",
       )
       .order("kickoff_at", { ascending: true, nullsFirst: false })
       .limit(100),
@@ -749,7 +778,7 @@ export default async function AdminMatchManagerPage({
                     <form action={syncMatchNow}>
                       <input type="hidden" name="match_id" value={match.id} />
                       <PendingSubmitButton
-                        idleText="Sync now"
+                        idleText="Retry sync"
                         pendingText="Syncing..."
                         className="w-fit rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:border-sky-400"
                       />
@@ -776,7 +805,7 @@ export default async function AdminMatchManagerPage({
                       href={`/admin/matches?edit=${match.id}`}
                       className="w-fit rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 transition hover:border-gold hover:text-gold"
                     >
-                      Manual override/edit data
+                      Manual final score
                     </Link>
                   </div>
                 </article>
