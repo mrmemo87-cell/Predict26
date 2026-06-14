@@ -139,6 +139,10 @@ const reasonMessage = (reason: SyncFailureReason) => {
   return messages[reason];
 };
 
+
+const syncErrorMessage = (reason: SyncFailureReason, error: unknown) =>
+  error instanceof Error ? error.message : reasonMessage(reason);
+
 const syncReasonForError = (provider: FootballProviderName, error: unknown): SyncFailureReason => {
   const openAiReason = provider === "google-openai" ? openAiWebSearchErrorReason(error) : null;
   if (openAiReason) return openAiReason;
@@ -781,13 +785,14 @@ async function syncOneMatch(
   } catch (error) {
     const statuses = missingStatuses();
     const reason = syncReasonForError(provider.name, error);
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason, [error instanceof Error ? error.message : reasonMessage(reason)]);
+    const detail = syncErrorMessage(reason, error);
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason, [detail], { reasonDetails: detail });
     await finishSyncRun(supabase, runId, {
       status: provider.name === "google-openai" ? "needs_review" : "failed",
       records_processed: 0,
       categories_needing_review: Object.keys(statuses),
-      error_message: reasonMessage(reason),
-      metadata: { reason, detail: error instanceof Error ? error.message : null },
+      error_message: detail,
+      metadata: { reason, detail },
     });
     if (provider.name === "google-openai") return "needs_review" as const;
     throw error;
