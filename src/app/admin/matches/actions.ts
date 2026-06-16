@@ -350,3 +350,51 @@ export async function updateBonusReadiness(formData: FormData) {
   revalidatePath("/admin/matches");
   redirect("/admin/matches?bonus_readiness_saved=1");
 }
+
+export async function saveProviderPlayerMapping(formData: FormData) {
+  await requireAdminUser("/admin/matches");
+  const matchId = optionalString(formData.get("match_id"));
+  const provider = optionalString(formData.get("provider")) ?? "google-openai";
+  const providerPlayerId = optionalString(formData.get("provider_player_id"));
+  const teamCode = optionalString(formData.get("team_code"));
+  const selected = optionalString(formData.get("competition_team_player_id"));
+
+  if (!matchId || !providerPlayerId || !selected) {
+    redirect("/admin/matches?error=invalid_bonus_readiness");
+  }
+
+  const supabase = createAdminClient();
+  const { data: squadPlayer, error: squadError } = await supabase
+    .from("competition_team_players")
+    .select("id, player_id, team_code")
+    .eq("id", selected)
+    .maybeSingle<{ id: string; player_id: string; team_code: string }>();
+
+  if (squadError || !squadPlayer) {
+    console.error("manual provider player mapping lookup failed", squadError);
+    redirect("/admin/matches?error=bonus_readiness_failed");
+  }
+
+  const { error } = await supabase.from("provider_player_mappings").upsert(
+    {
+      provider,
+      provider_player_id: providerPlayerId,
+      competition_code: "WC2026",
+      team_code: squadPlayer.team_code ?? teamCode,
+      player_id: squadPlayer.player_id,
+      competition_team_player_id: squadPlayer.id,
+      confidence: 100,
+      mapping_status: "active",
+      raw_payload: { source: "admin_manual_lineup_mapping" },
+    },
+    { onConflict: "provider,provider_player_id" },
+  );
+
+  if (error) {
+    console.error("manual provider player mapping save failed", error);
+    redirect("/admin/matches?error=bonus_readiness_failed");
+  }
+
+  revalidatePath("/admin/matches");
+  redirect(`/admin/matches?bonus_readiness_saved=1&edit=${matchId}`);
+}
