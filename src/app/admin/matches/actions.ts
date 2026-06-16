@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { updateMatchBonusReadiness, BONUS_READINESS_STATUSES, type BonusReadinessCategory, type BonusReadinessStatus } from "@/lib/scoring/bonusReadiness";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
-import { syncFinishedMatches } from "@/lib/football-data/postMatchSync";
+import { processAdminSyncJobs, queueAdminSyncJob, queueEligibleFinishedBatch, type AdminSyncJobType } from "@/lib/admin/syncJobs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const MATCH_STATUSES = ["scheduled", "live", "in_progress", "completed", "finished", "postponed", "cancelled"] as const;
@@ -166,42 +166,64 @@ export async function saveMatch(formData: FormData) {
 }
 
 
-export async function syncMatchNow(formData: FormData) {
-  await requireAdminUser("/admin/matches");
-
+export async function queueMatchSync(formData: FormData) {
+  const admin = await requireAdminUser("/admin/matches");
   const matchId = optionalString(formData.get("match_id"));
+  const jobTypeValue = optionalString(formData.get("job_type")) ?? "sync_match_full";
+  const allowedTypes: AdminSyncJobType[] = ["sync_match_exact", "sync_match_bonus", "sync_match_full", "score_match"];
+  const jobType = allowedTypes.includes(jobTypeValue as AdminSyncJobType) ? jobTypeValue as AdminSyncJobType : "sync_match_full";
 
-  let result;
+  if (!matchId) redirect("/admin/matches?error=invalid_sync_review");
+
   try {
-    result = await syncFinishedMatches(undefined, matchId ?? undefined);
+    await queueAdminSyncJob({ jobType, matchId, requestedBy: admin.id, priority: jobType === "score_match" ? 25 : 75 });
   } catch (error) {
-    console.error("post-match sync failed", error);
+    console.error("queue match sync failed", error);
     redirect("/admin/matches?error=sync_failed");
   }
 
   revalidatePath("/admin/matches");
-  revalidatePath("/dashboard");
-  revalidatePath("/leaderboard");
-  revalidatePath("/predictions");
-  redirect(`/admin/matches?synced=1&eligible=${result.eligible}&processed=${result.processed}&remaining=${result.remaining}&scored=${result.scored}&needs_review=${result.needsReview}&failed=${result.failed}&skipped=${result.skipped}`);
+  redirect("/admin/matches?queued=1");
 }
 
-export async function syncFinishedMatchesNow() {
-  await requireAdminUser("/admin/matches");
-
-  let result;
+export async function queueFinishedMatchesBatch() {
+  const admin = await requireAdminUser("/admin/matches");
   try {
-    result = await syncFinishedMatches();
+    const result = await queueEligibleFinishedBatch(admin.id, 8);
+    revalidatePath("/admin/matches");
+    redirect(`/admin/matches?queued=${result.queued}&remaining=${result.remainingEligible}`);
   } catch (error) {
-    console.error("finished matches sync failed", error);
+    console.error("queue batch failed", error);
     redirect("/admin/matches?error=sync_failed");
   }
+}
 
+export async function processSyncQueueNow() {
+  await requireAdminUser("/admin/matches");
+  try {
+    const result = await processAdminSyncJobs(2);
+    revalidatePath("/admin/matches");
+    revalidatePath("/dashboard");
+    revalidatePath("/leaderboard");
+    revalidatePath("/predictions");
+    redirect(`/admin/matches?processed=${result.picked}`);
+  } catch (error) {
+    console.error("process sync queue failed", error);
+    redirect("/admin/matches?error=sync_failed");
+  }
+}
+
+export async function retryFailedSyncJobs() {
+  await requireAdminUser("/admin/matches");
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("admin_sync_jobs")
+    .update({ status: "queued", error_code: null, error_message: null, finished_at: null })
+    .eq("status", "failed")
+    .lt("attempts", 3);
+  if (error) redirect("/admin/matches?error=sync_failed");
   revalidatePath("/admin/matches");
-  revalidatePath("/dashboard");
-  revalidatePath("/leaderboard");
-  revalidatePath("/predictions");
-  redirect(`/admin/matches?synced=1&eligible=${result.eligible}&processed=${result.processed}&remaining=${result.remaining}&scored=${result.scored}&needs_review=${result.needsReview}&failed=${result.failed}&skipped=${result.skipped}`);
+  redirect("/admin/matches?queued=retry");
 }
 
 export async function markMatchSyncReviewed(formData: FormData) {

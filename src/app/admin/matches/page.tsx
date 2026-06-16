@@ -4,7 +4,7 @@ import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { formatUtcMatchTime } from "@/lib/dates/matchTime";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { markMatchSyncReviewed, markReportReviewed, saveMatch, scoreMatch, syncFinishedMatchesNow, syncMatchNow, updateBonusReadiness } from "./actions";
+import { markMatchSyncReviewed, markReportReviewed, processSyncQueueNow, queueFinishedMatchesBatch, queueMatchSync, retryFailedSyncJobs, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
 import MatchForm from "./MatchForm";
 import { buildFlagLookup, formatFlaggedLabel } from "@/lib/domain/countries";
 import { BONUS_READINESS_STATUSES, getMatchBonusReadinessMap, type BonusReadinessCategory, type BonusReadinessDiagnostics } from "@/lib/scoring/bonusReadiness";
@@ -17,6 +17,7 @@ type SearchParams = Promise<{
   already_scored?: string;
   bonus_readiness_saved?: string;
   synced?: string;
+  queued?: string;
   eligible?: string;
   processed?: string;
   remaining?: string;
@@ -105,6 +106,23 @@ type PredictionScoringRow = {
   match_id: string | null;
   points_awarded: number | null;
   result_points_applied: boolean | null;
+};
+
+
+type AdminSyncJobRow = {
+  id: string;
+  job_type: string;
+  match_id: string | null;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  result: unknown;
 };
 
 type ReportRow = {
@@ -620,6 +638,7 @@ export default async function AdminMatchManagerPage({
     { data: matches },
     { data: reports },
     { data: countries },
+    { data: syncJobs },
   ] = await Promise.all([
     supabase
       .from("competitions")
@@ -645,6 +664,11 @@ export default async function AdminMatchManagerPage({
       .order("created_at", { ascending: false })
       .limit(25),
     supabase.from("countries").select("code, flag_emoji"),
+    supabase
+      .from("admin_sync_jobs")
+      .select("id, job_type, match_id, status, attempts, max_attempts, error_code, error_message, created_at, started_at, finished_at, updated_at, result")
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   const competitionRows = (competitions ?? []) as CompetitionRow[];
@@ -710,10 +734,33 @@ export default async function AdminMatchManagerPage({
     return runsByMatchId;
   }, {});
   const reportRows = (reports ?? []) as unknown as ReportRow[];
+  const jobRows = (syncJobs ?? []) as AdminSyncJobRow[];
   const editingMatch =
     matchRows.find((match) => match.id === params.edit) ?? null;
   const defaultCompetitionId =
     editingMatch?.competition_id ?? competitionRows[0]?.id ?? "";
+  const exactScoredCount = matchRows.filter((match) => {
+    const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
+    return summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+  }).length;
+  const fullyScoredCount = matchRows.filter((match) => syncState(match)?.status === "fully_scored").length;
+  const bonusPendingCount = matchRows.filter((match) => syncState(match)?.status === "bonus_pending").length;
+  const reviewCount = matchRows.filter((match) => syncState(match)?.status === "needs_review").length;
+  const failedJobCount = jobRows.filter((job) => job.status === "failed").length;
+  const runningJobCount = jobRows.filter((job) => job.status === "running" || job.status === "queued").length;
+  const nextRetry = matchRows
+    .map((match) => syncState(match)?.next_sync_after)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  const playedCount = matchRows.filter((match) => match.status === "finished" || Boolean(postMatchReadyAt(match.kickoff_at) && postMatchReadyAt(match.kickoff_at)! <= new Date())).length;
+  const attentionMatches = matchRows.filter((match) => {
+    const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
+    const state = syncState(match);
+    const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+    const readyAt = postMatchReadyAt(match.kickoff_at);
+    const finalMissingLate = readyAt !== null && readyAt <= new Date() && (match.home_score === null || match.away_score === null);
+    return Boolean(finalMissingLate || (!exactScored && match.status === "finished") || state?.status === "needs_review" || state?.status === "bonus_pending");
+  }).slice(0, 12);
 
   return (
     <main className="min-h-screen px-4 py-8 sm:py-12">
@@ -735,7 +782,7 @@ export default async function AdminMatchManagerPage({
               </Link>
             </div>
             <h1 className="mt-3 text-3xl font-bold text-gray-900 sm:text-5xl">
-              Admin Match Manager
+              Admin Command Center
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
               Add or edit fixtures, assign stadiums, update kickoff times,
@@ -743,13 +790,17 @@ export default async function AdminMatchManagerPage({
               post-match provider sync exceptions. Normal finished matches score automatically.
             </p>
           </div>
-          <form action={syncFinishedMatchesNow}>
-            <PendingSubmitButton
-              idleText="Sync next eligible batch"
-              pendingText="Syncing..."
-              className="w-fit rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-black"
-            />
-          </form>
+          <div className="flex flex-wrap gap-2">
+            <form action={queueFinishedMatchesBatch}>
+              <PendingSubmitButton idleText="Queue next eligible batch" pendingText="Queueing..." className="w-fit rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-black" />
+            </form>
+            <form action={processSyncQueueNow}>
+              <PendingSubmitButton idleText="Process queue now" pendingText="Processing 1–2..." className="w-fit rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-gold hover:text-black" />
+            </form>
+            <form action={retryFailedSyncJobs}>
+              <PendingSubmitButton idleText="Retry failed jobs" pendingText="Queueing..." className="w-fit rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-rose-700" />
+            </form>
+          </div>
         </header>
 
         {params.saved && (
@@ -777,6 +828,11 @@ export default async function AdminMatchManagerPage({
             Post-match provider sync processed {params.processed ?? "0"} of {params.eligible ?? "0"} eligible matches. Scored exact {params.scored ?? "0"}; needs review {params.needs_review ?? "0"}; failed {params.failed ?? "0"}; skipped {params.skipped ?? "0"}; remaining {params.remaining ?? "0"}.
           </div>
         )}
+        {params.queued && (
+          <div className="mb-5 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-700">
+            Queued {params.queued} sync job(s). {params.remaining ? `${params.remaining} eligible match(es) remain for a later batch.` : "Use Process queue now to run a small worker batch."}
+          </div>
+        )}
         {params.reviewed && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
             Match marked reviewed. You can rescore after any manual correction.
@@ -792,6 +848,51 @@ export default async function AdminMatchManagerPage({
             {friendlyError(params.error)}
           </div>
         )}
+
+        <section className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Matches played", playedCount],
+            ["Exact results scored", exactScoredCount],
+            ["Fully scored", fullyScoredCount],
+            ["Bonus pending", bonusPendingCount],
+            ["Waiting admin review", reviewCount],
+            ["Failed syncs", failedJobCount],
+            ["Sync queue running", runningJobCount],
+            ["Next scheduled retry", nextRetry ? formatAdminDate(nextRetry) : "—"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">{label}</p>
+              <p className="mt-2 text-2xl font-black text-gray-900">{value}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm sm:p-8">
+          <h2 className="text-2xl font-bold text-gray-900">What needs my attention?</h2>
+          <div className="mt-4 space-y-3">
+            {attentionMatches.map((match) => {
+              const state = syncState(match);
+              const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
+              const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+              const problem = state?.status === "needs_review" ? metadataRecord(state.metadata).reason ?? "waiting admin review" : state?.status === "bonus_pending" ? "bonus categories pending" : !exactScored && match.status === "finished" ? "exact result not scored" : "final score missing after kickoff + 120 min";
+              return (
+                <article key={match.id} className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-bold text-gray-900">{match.home_team_name ?? "Team TBA"} vs {match.away_team_name ?? "Team TBA"}</h3>
+                    <p className="text-sm font-semibold text-amber-900">Problem: {statusLabel(String(problem))}</p>
+                    <p className="text-sm text-gray-600">Suggested action: exact score can be scored independently; retry only the pending bonus categories or open manual review for mapping/data issues.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="score_match" /><PendingSubmitButton idleText="Score exact now" pendingText="Queueing..." className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white" /></form>
+                    <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="sync_match_bonus" /><PendingSubmitButton idleText="Retry bonus" pendingText="Queueing..." className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700" /></form>
+                    <Link href={`/admin/matches?edit=${match.id}`} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700">Manual review</Link>
+                  </div>
+                </article>
+              );
+            })}
+            {attentionMatches.length === 0 && <p className="text-sm font-semibold text-amber-900">No action-needed matches in the current window.</p>}
+          </div>
+        </section>
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">
@@ -901,13 +1002,24 @@ export default async function AdminMatchManagerPage({
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <form action={syncMatchNow}>
+                    <form action={queueMatchSync}>
                       <input type="hidden" name="match_id" value={match.id} />
+                      <input type="hidden" name="job_type" value="sync_match_full" />
                       <PendingSubmitButton
-                        idleText="Retry bonus sync"
-                        pendingText="Syncing..."
+                        idleText="Queue sync"
+                        pendingText="Queueing..."
                         className="w-fit rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:border-sky-400"
                       />
+                    </form>
+                    <form action={queueMatchSync}>
+                      <input type="hidden" name="match_id" value={match.id} />
+                      <input type="hidden" name="job_type" value="sync_match_exact" />
+                      <PendingSubmitButton idleText="Queue exact-only sync" pendingText="Queueing..." className="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700" />
+                    </form>
+                    <form action={queueMatchSync}>
+                      <input type="hidden" name="match_id" value={match.id} />
+                      <input type="hidden" name="job_type" value="sync_match_bonus" />
+                      <PendingSubmitButton idleText="Queue bonus sync" pendingText="Queueing..." className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800" />
                     </form>
                     {isScoreable && (
                       <form action={scoreMatch}>
