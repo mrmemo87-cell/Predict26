@@ -4,7 +4,7 @@ import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { formatUtcMatchTime } from "@/lib/dates/matchTime";
 import { requireAdminUser } from "@/lib/admin/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { markMatchSyncReviewed, markReportReviewed, processSyncQueueNow, queueFinishedMatchesBatch, queueMatchSync, retryFailedSyncJobs, saveMatch, scoreMatch, updateBonusReadiness } from "./actions";
+import { markMatchSyncReviewed, markReportReviewed, processSyncQueueNow, queueFinishedMatchesBatch, queueMatchSync, retryFailedSyncJobs, saveMatch, scoreMatch, updateBonusReadiness, saveProviderPlayerMapping } from "./actions";
 import MatchForm from "./MatchForm";
 import { buildFlagLookup, formatFlaggedLabel } from "@/lib/domain/countries";
 import { BONUS_READINESS_STATUSES, getMatchBonusReadinessMap, type BonusReadinessCategory, type BonusReadinessDiagnostics } from "@/lib/scoring/bonusReadiness";
@@ -260,6 +260,45 @@ const scoringCategoryLabel = (category: string) => {
   return labels[category] ?? statusLabel(category);
 };
 
+type CurrentAdminSyncState = {
+  headline: string | null;
+  blockers: string[];
+  resolvedHistoricalIssues: string[];
+};
+
+const currentAdminSyncState = (
+  state: MatchSyncStateRow | null,
+  run: ProviderSyncRunRow | null,
+  latestScoringRun: MatchScoringRunSummary | undefined,
+): CurrentAdminSyncState => {
+  const blockers: string[] = [
+    ["Exact result", state?.exact_result_status],
+    ["Possession", state?.possession_status],
+    ["Scorers", state?.goal_events_status],
+    ["Home XI mapping incomplete", state?.lineup_home_status],
+    ["Away XI mapping incomplete", state?.lineup_away_status],
+  ].flatMap(([label, status]) => typeof label === "string" && status && status !== "ready" ? [label] : []);
+  const lineupBlockers = blockers.filter((blocker) => blocker.includes("XI"));
+  const stateMetadata = metadataRecord(state?.metadata);
+  const warnings = stringArray(stateMetadata.warnings);
+  const scorerCurrentlyReady = state?.goal_events_status === "ready" || latestScoringRun?.completed.includes("match_scorer") === true;
+  const historical = [
+    ...(typeof run?.error_message === "string" && run.error_message.length > 0 ? [run.error_message] : []),
+    ...warnings,
+  ].filter((issue) => !(scorerCurrentlyReady && issue.includes("goal_event_apply_failed")));
+  const resolvedHistoricalIssues = historical.length < ((run?.error_message ? 1 : 0) + warnings.length)
+    ? ["previous goal event upsert failed, resolved after retry", ...historical]
+    : historical;
+
+  let headline: string | null = null;
+  if (lineupBlockers.length === 2 && blockers.length === 2) headline = "Bonus pending: Home XI and Away XI incomplete";
+  else if (lineupBlockers.length > 0 && blockers.every((blocker) => blocker.includes("XI"))) headline = "Lineups pending";
+  else if (blockers.length > 0) headline = `Current blocker: ${blockers.join(", ")}`;
+  else if (state?.status === "fully_scored") headline = "Fully scored";
+
+  return { headline, blockers, resolvedHistoricalIssues };
+};
+
 const syncStatusClasses = (status: string | null | undefined) => {
   if (status === "fully_scored" || status === "final_score_scored") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "bonus_pending" || status === "awaiting_final_data") return "border-amber-200 bg-amber-50 text-amber-800";
@@ -384,14 +423,17 @@ function LatestScoringRunSummary({
 function LatestSyncRunSummary({
   state,
   run,
+  latestScoringRun,
 }: {
   state: MatchSyncStateRow | null;
   run: ProviderSyncRunRow | null;
+  latestScoringRun?: MatchScoringRunSummary;
 }) {
   const hasSyncState = Boolean(state);
   const stateMetadata = metadataRecord(state?.metadata);
   const runMetadata = metadataRecord(run?.metadata);
-  const reason = typeof stateMetadata.reasonDetails === "string" ? stateMetadata.reasonDetails : typeof runMetadata.detail === "string" ? runMetadata.detail : typeof stateMetadata.reason === "string" ? stateMetadata.reason : typeof runMetadata.reason === "string" ? runMetadata.reason : null;
+  const adminState = currentAdminSyncState(state, run, latestScoringRun);
+  const reason = adminState.headline;
   const warnings = Array.isArray(stateMetadata.warnings) ? stateMetadata.warnings.filter((item): item is string => typeof item === "string") : [];
   const sources = Array.isArray(stateMetadata.sources) ? stateMetadata.sources : Array.isArray(runMetadata.sources) ? runMetadata.sources : [];
   const sourceNames = sources
@@ -444,7 +486,12 @@ function LatestSyncRunSummary({
       </div>
       {reason && (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
-          Reason: {statusLabel(reason)}
+          {reason}
+        </p>
+      )}
+      {adminState.blockers.length > 0 && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
+          Current blocker: {adminState.blockers.join(", ")}
         </p>
       )}
       {warnings.length > 0 && (
@@ -464,10 +511,13 @@ function LatestSyncRunSummary({
           Next post-match retry after {formatAdminDate(state.next_sync_after)} · retry {state.retry_count ?? 0}
         </p>
       )}
-      {run?.error_message && (
-        <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 font-semibold text-rose-700">
-          Needs review: {run.error_message}
-        </p>
+      {adminState.resolvedHistoricalIssues.length > 0 && (
+        <details className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+          <summary className="cursor-pointer font-semibold text-gray-700">Historical resolved issues</summary>
+          <ul className="mt-1 list-disc space-y-1 pl-5 font-semibold text-gray-600">
+            {adminState.resolvedHistoricalIssues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
+        </details>
       )}
     </div>
   );
@@ -543,7 +593,7 @@ function BonusDataReadinessPanel({
       healthText: `Extracted ${homeLineupSummary.extractedCount ?? homeLineups.length}/11 · mapped ${homeLineupSummary.mappedCount ?? homeLineups.filter((item) => metadataRecord(item).mapped === true).length}/11`,
       notesName: "home lineup notes",
       details: [
-        homeLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+        homeLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : ` (${row.mappingFailure ?? "mapping review"})`}`; }).join(", "),
         homeUnmapped.length > 0 ? `Unmapped: ${homeUnmapped.join(", ")}` : "",
         categorySources(syncMetadata, "lineup_home").length > 0 ? `Sources: ${categorySources(syncMetadata, "lineup_home").join(", ")}` : "",
       ].filter(Boolean).join(" · "),
@@ -557,7 +607,7 @@ function BonusDataReadinessPanel({
       healthText: `Extracted ${awayLineupSummary.extractedCount ?? awayLineups.length}/11 · mapped ${awayLineupSummary.mappedCount ?? awayLineups.filter((item) => metadataRecord(item).mapped === true).length}/11`,
       notesName: "away lineup notes",
       details: [
-        awayLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : " (mapping review)"}`; }).join(", "),
+        awayLineups.map((item) => { const row = metadataRecord(item); return `${row.name ?? "Unknown"}${row.mapped ? " ✓" : ` (${row.mappingFailure ?? "mapping review"})`}`; }).join(", "),
         awayUnmapped.length > 0 ? `Unmapped: ${awayUnmapped.join(", ")}` : "",
         categorySources(syncMetadata, "lineup_away").length > 0 ? `Sources: ${categorySources(syncMetadata, "lineup_away").join(", ")}` : "",
       ].filter(Boolean).join(" · "),
@@ -572,9 +622,7 @@ function BonusDataReadinessPanel({
       </summary>
       <div className="mt-3 grid gap-2 lg:grid-cols-2">
         {items.map((item) => (
-          <form key={item.category} action={updateBonusReadiness} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-            <input type="hidden" name="match_id" value={matchId} />
-            <input type="hidden" name="category" value={item.category} />
+          <div key={item.category} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="font-bold text-gray-900">{item.label}</p>
@@ -594,12 +642,45 @@ function BonusDataReadinessPanel({
                 Not scoreable yet: {statusLabel(item.reason)}
               </p>
             )}
+            {(item.category === "lineup_home" || item.category === "lineup_away") && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs font-semibold text-gray-500">
+                  Diagnostics: team code used for extraction {String((item.category === "lineup_home" ? homeLineupSummary.teamCodeUsedForExtraction : awayLineupSummary.teamCodeUsedForExtraction) ?? "—")} · canonical squad lookup {String((item.category === "lineup_home" ? homeLineupSummary.canonicalSquadTeamCode : awayLineupSummary.canonicalSquadTeamCode) ?? "—")} · squad players {String((item.category === "lineup_home" ? homeLineupSummary.squadPlayerCount : awayLineupSummary.squadPlayerCount) ?? 0)}
+                </p>
+                {(item.category === "lineup_home" ? homeLineups : awayLineups).filter((lineup) => metadataRecord(lineup).mapped !== true).map((lineup) => {
+                  const row = metadataRecord(lineup);
+                  const suggestions = Array.isArray(row.suggestions) ? row.suggestions.map(metadataRecord) : [];
+                  return (
+                    <form key={String(row.providerPlayerId ?? row.name)} action={saveProviderPlayerMapping} className="rounded-lg border border-amber-100 bg-white p-2 text-xs">
+                      <input type="hidden" name="match_id" value={matchId} />
+                      <input type="hidden" name="provider" value={state?.provider ?? "google-openai"} />
+                      <input type="hidden" name="provider_player_id" value={String(row.providerPlayerId ?? "")} />
+                      <input type="hidden" name="team_code" value={String(row.teamCode ?? "")} />
+                      <p className="font-bold text-gray-800">{String(row.name ?? "Unknown player")} · {String(row.mappingFailure ?? "mapping review")}</p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <select name="competition_team_player_id" className="min-w-48 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700">
+                          {suggestions.length === 0 && <option value="">No confident suggestions</option>}
+                          {suggestions.map((suggestion) => (
+                            <option key={String(suggestion.competitionTeamPlayerId)} value={String(suggestion.competitionTeamPlayerId)}>
+                              {String(suggestion.displayName)} · {String(suggestion.confidence)}% · {String(suggestion.reason)}
+                            </option>
+                          ))}
+                        </select>
+                        <PendingSubmitButton idleText="Save mapping" pendingText="Saving..." className="rounded-full bg-gray-900 px-3 py-2 text-xs font-bold text-white" />
+                      </div>
+                    </form>
+                  );
+                })}
+              </div>
+            )}
             {item.status === "ready" && !item.ready && (
               <p className="mt-2 text-xs font-semibold text-rose-700">
                 Marked ready, but required match data still needs attention.
               </p>
             )}
-            <div className="mt-3 flex flex-wrap gap-2">
+            <form action={updateBonusReadiness} className="mt-3 flex flex-wrap gap-2">
+              <input type="hidden" name="match_id" value={matchId} />
+              <input type="hidden" name="category" value={item.category} />
               <select name="status" defaultValue={item.status ?? "unreviewed"} className="min-w-32 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700">
                 {BONUS_READINESS_STATUSES.map((status) => (
                   <option key={status} value={status}>{statusLabel(status)}</option>
@@ -615,8 +696,8 @@ function BonusDataReadinessPanel({
                 pendingText="Saving..."
                 className="rounded-full bg-gray-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-gold hover:text-black"
               />
-            </div>
-          </form>
+            </form>
+          </div>
         ))}
       </div>
     </details>
@@ -988,7 +1069,7 @@ export default async function AdminMatchManagerPage({
                         {isScored ? "Scored" : "Not scored"} · Predictions {scoringSummary.predictions} · Points {scoringSummary.pointsApplied}
                       </span>
                     </div>
-                    <LatestSyncRunSummary state={state} run={run} />
+                    <LatestSyncRunSummary state={state} run={run} latestScoringRun={latestScoringRuns[match.id]} />
                     {match.status === "finished" && (
                       <>
                         <LatestScoringRunSummary summary={latestScoringRuns[match.id]} />

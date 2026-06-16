@@ -67,7 +67,7 @@ type CompetitionTeamPlayerRow = {
   squad_number: number | null;
   name_on_shirt: string | null;
   player_id: string;
-  players: Array<{ display_name: string | null; normalized_name: string | null }> | { display_name: string | null; normalized_name: string | null } | null;
+  players: Array<{ display_name: string | null; normalized_name: string | null; first_name?: string | null; last_name?: string | null; shirt_number?: number | null }> | { display_name: string | null; normalized_name: string | null; first_name?: string | null; last_name?: string | null; shirt_number?: number | null } | null;
 };
 
 type ScoringRunRow = { id: string };
@@ -269,32 +269,85 @@ const playerNameForRow = (row: CompetitionTeamPlayerRow) => {
   return player?.display_name ?? row.name_on_shirt ?? "";
 };
 
+type PlayerMatchSuggestion = {
+  row: CompetitionTeamPlayerRow;
+  confidence: number;
+  reason: string;
+};
+
+const playerNameCandidates = (row: CompetitionTeamPlayerRow) => {
+  const player = firstRelation(row.players);
+  return [
+    player?.normalized_name,
+    player?.display_name,
+    row.name_on_shirt,
+    [player?.first_name, player?.last_name].filter(Boolean).join(" "),
+    player?.last_name,
+  ].filter((name): name is string => typeof name === "string" && name.trim().length > 0);
+};
+
+const surname = (name: string) => normalizePlayerName(name).split(" ").filter(Boolean).at(-1) ?? "";
+const firstInitial = (name: string) => normalizePlayerName(name).split(" ").filter(Boolean)[0]?.[0] ?? "";
+const tokenSet = (name: string) => new Set(normalizePlayerName(name).split(" ").filter((token) => token.length > 1));
+
+function rankPlayerMatches(
+  rows: CompetitionTeamPlayerRow[],
+  playerName: string,
+  shirtNumber: number | null | undefined,
+): PlayerMatchSuggestion[] {
+  const normalized = normalizePlayerName(playerName);
+  if (!normalized) return [];
+  const wantedTokens = tokenSet(playerName);
+  const wantedSurname = surname(playerName);
+  const wantedInitial = firstInitial(playerName);
+
+  return rows.flatMap((row) => {
+    const names = playerNameCandidates(row);
+    const best = names.reduce<PlayerMatchSuggestion | null>((current, candidate) => {
+      const candidateNorm = normalizePlayerName(candidate);
+      const candidateTokens = tokenSet(candidate);
+      const overlap = [...wantedTokens].filter((token) => candidateTokens.has(token)).length;
+      const maxTokens = Math.max(wantedTokens.size, candidateTokens.size, 1);
+      const overlapScore = overlap / maxTokens;
+      const shirtMatches = shirtNumber !== null && shirtNumber !== undefined && (row.squad_number === shirtNumber || firstRelation(row.players)?.shirt_number === shirtNumber);
+      let confidence = 0;
+      let reason = "token overlap";
+
+      if (candidateNorm === normalized) {
+        confidence = 100;
+        reason = "normalized exact name";
+      } else if (shirtMatches && surname(candidate) === wantedSurname) {
+        confidence = 96;
+        reason = "shirt number + surname";
+      } else if (surname(candidate) === wantedSurname && firstInitial(candidate) === wantedInitial && wantedSurname.length > 2) {
+        confidence = 92;
+        reason = "surname + first initial";
+      } else if (overlapScore >= 0.67 && overlap >= 2) {
+        confidence = Math.round(80 + overlapScore * 10);
+        reason = "compound-name token overlap";
+      } else if (candidateNorm.includes(normalized) || normalized.includes(candidateNorm)) {
+        confidence = 82;
+        reason = "normalized partial name";
+      }
+
+      if (confidence === 0) return current;
+      if (!current || confidence > current.confidence) return { row, confidence, reason };
+      return current;
+    }, null);
+    return best ? [best] : [];
+  }).sort((a, b) => b.confidence - a.confidence);
+}
+
 function confidentPlayerMatch(
   rows: CompetitionTeamPlayerRow[],
   playerName: string,
   shirtNumber: number | null | undefined,
 ) {
-  const normalized = normalizePlayerName(playerName);
-  if (!normalized) return null;
-
-  const exactMatches = rows.filter((row) => {
-    const player = firstRelation(row.players);
-    return (
-      normalizePlayerName(player?.normalized_name) === normalized ||
-      normalizePlayerName(player?.display_name) === normalized ||
-      normalizePlayerName(row.name_on_shirt) === normalized
-    );
-  });
-  if (exactMatches.length === 1) return exactMatches[0];
-
-  if (shirtNumber !== null && shirtNumber !== undefined) {
-    const numberMatches = rows.filter(
-      (row) => row.squad_number === shirtNumber && normalizePlayerName(playerNameForRow(row)).includes(normalized),
-    );
-    if (numberMatches.length === 1) return numberMatches[0];
-  }
-
-  return null;
+  const ranked = rankPlayerMatches(rows, playerName, shirtNumber);
+  const top = ranked[0];
+  if (!top || top.confidence < 90) return null;
+  const tied = ranked.filter((match) => match.confidence === top.confidence && match.row.id !== top.row.id);
+  return tied.length === 0 ? top.row : null;
 }
 
 async function ensureReportPlayerMappings(
@@ -336,7 +389,7 @@ async function ensureReportPlayerMappings(
 
   const { data, error } = await supabase
     .from("competition_team_players")
-    .select("id, team_code, squad_number, name_on_shirt, player_id, players(display_name, normalized_name)")
+    .select("id, team_code, squad_number, name_on_shirt, player_id, players(display_name, normalized_name, first_name, last_name, shirt_number)")
     .eq("competition_code", "WC2026")
     .eq("is_active", true)
     .in("team_code", teamCodes);
@@ -378,6 +431,81 @@ async function ensureReportPlayerMappings(
     .upsert(upserts, { onConflict: "provider,provider_player_id" });
   if (upsertError) throw new Error(`Could not save provider player mappings: ${upsertError.message}`);
 }
+
+async function loadLineupMappingSuggestions(
+  supabase: AdminClient,
+  report: ProviderPostMatchReport,
+  aliases: Map<string, string>,
+) {
+  const rawCodes = [...new Set(report.lineups.map((lineup) => normalizeTeamCode(lineup.teamCode)).filter(Boolean) as string[])];
+  const canonicalCodes = [...new Set(rawCodes.map((code) => aliases.get(code) ?? code))];
+  if (canonicalCodes.length === 0) return new Map<string, Array<{ playerId: string; competitionTeamPlayerId: string; displayName: string; confidence: number; reason: string }>>();
+
+  const { data, error } = await supabase
+    .from("competition_team_players")
+    .select("id, team_code, squad_number, name_on_shirt, player_id, players(display_name, normalized_name, first_name, last_name, shirt_number)")
+    .eq("competition_code", "WC2026")
+    .eq("is_active", true)
+    .in("team_code", canonicalCodes);
+
+  if (error) throw new Error(`Could not load lineup player suggestions: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as CompetitionTeamPlayerRow[];
+  const rowsByTeam = rows.reduce((map, row) => {
+    const list = map.get(row.team_code) ?? [];
+    list.push(row);
+    map.set(row.team_code, list);
+    return map;
+  }, new Map<string, CompetitionTeamPlayerRow[]>());
+
+  return new Map(report.lineups.map((lineup) => {
+    const rawTeamCode = normalizeTeamCode(lineup.teamCode);
+    const canonicalTeamCode = rawTeamCode ? aliases.get(rawTeamCode) ?? rawTeamCode : null;
+    const suggestions = canonicalTeamCode
+      ? rankPlayerMatches(rowsByTeam.get(canonicalTeamCode) ?? [], lineup.displayName, lineup.shirtNumber)
+          .slice(0, 5)
+          .map((suggestion) => ({
+            playerId: suggestion.row.player_id,
+            competitionTeamPlayerId: suggestion.row.id,
+            displayName: playerNameForRow(suggestion.row),
+            confidence: suggestion.confidence,
+            reason: suggestion.reason,
+          }))
+      : [];
+    return [lineup.externalId, suggestions];
+  }));
+}
+
+
+async function loadLineupSquadDiagnostics(
+  supabase: AdminClient,
+  report: ProviderPostMatchReport,
+  aliases: Map<string, string>,
+) {
+  const rawCodes = [...new Set(report.lineups.map((lineup) => normalizeTeamCode(lineup.teamCode)).filter(Boolean) as string[])];
+  const canonicalCodes = [...new Set(rawCodes.map((code) => aliases.get(code) ?? code))];
+  if (canonicalCodes.length === 0) return new Map<string, { rawTeamCode: string | null; canonicalTeamCode: string | null; squadPlayerCount: number }>();
+
+  const { data, error } = await supabase
+    .from("competition_team_players")
+    .select("team_code")
+    .eq("competition_code", "WC2026")
+    .eq("is_active", true)
+    .in("team_code", canonicalCodes);
+
+  if (error) throw new Error(`Could not load lineup squad diagnostics: ${error.message}`);
+
+  const counts = ((data ?? []) as Array<{ team_code: string }>).reduce((map, row) => {
+    map.set(row.team_code, (map.get(row.team_code) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
+
+  return new Map(rawCodes.map((rawCode) => {
+    const canonicalTeamCode = aliases.get(rawCode) ?? rawCode;
+    return [rawCode, { rawTeamCode: rawCode, canonicalTeamCode, squadPlayerCount: counts.get(canonicalTeamCode) ?? 0 }];
+  }));
+}
+
 
 async function stageReport(
   supabase: AdminClient,
@@ -777,6 +905,8 @@ async function syncOneMatch(
       console.warn("provider player mapping load failed", error);
     }
     const statuses = validateReport(report, mappings);
+    const lineupSquadDiagnostics = await loadLineupSquadDiagnostics(supabase, report, aliases);
+    const lineupSuggestions = await loadLineupMappingSuggestions(supabase, report, aliases);
 
     await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
     await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
@@ -832,15 +962,27 @@ async function syncOneMatch(
     const lineupMetadata = (teamSide: "home" | "away") => {
       const starters = report.lineups.filter((lineup) => lineup.teamSide === teamSide && lineup.isStarter);
       const mapped = starters.filter((lineup) => mappedPlayerId(mappings, lineup.externalId));
+      const rawTeamCode = normalizeTeamCode(starters[0]?.teamCode);
+      const diagnostics = rawTeamCode ? lineupSquadDiagnostics.get(rawTeamCode) : undefined;
       return {
+        teamCodeUsedForExtraction: rawTeamCode,
+        canonicalSquadTeamCode: diagnostics?.canonicalTeamCode ?? rawTeamCode,
+        squadPlayerCount: diagnostics?.squadPlayerCount ?? 0,
         extractedCount: starters.length,
         mappedCount: mapped.length,
         expectedCount: 11,
         unmapped: starters.filter((lineup) => !mappedPlayerId(mappings, lineup.externalId)).map((lineup) => lineup.displayName),
         players: starters.map((lineup) => ({
+          providerPlayerId: lineup.externalId,
           name: lineup.displayName,
+          teamCode: normalizeTeamCode(lineup.teamCode),
+          shirtNumber: lineup.shirtNumber ?? null,
           mapped: Boolean(mappedPlayerId(mappings, lineup.externalId)),
           mappedPlayerId: mappedPlayerId(mappings, lineup.externalId),
+          mappingFailure: !mappedPlayerId(mappings, lineup.externalId)
+            ? ((rawTeamCode && (lineupSquadDiagnostics.get(rawTeamCode)?.squadPlayerCount ?? 0) === 0) ? "Player not found in squad table" : "mapping review")
+            : null,
+          suggestions: lineupSuggestions.get(lineup.externalId) ?? [],
           sources: metadataStringArray(metadataRecord(lineup.rawPayload).sourceUrls),
         })),
       };
