@@ -10,3 +10,4 @@ export const PRIZE_POOL = [
 ] as const;
 
 export const WORLD_CUP_SLUG = "world-cup-2026";
+export const WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT = 72;
