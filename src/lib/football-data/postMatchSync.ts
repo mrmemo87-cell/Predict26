@@ -521,7 +521,13 @@ async function applyCanonicalData(
       },
       { onConflict: "match_id,source,provider_event_id" },
     );
-    if (error) throw new Error(`Could not apply goal event: ${error.message}`);
+    if (error) {
+      statuses.goal_events = "incomplete";
+      const failure = `goal_event_apply_failed: ${error.message}`;
+      report.rawPayload = { ...(metadataRecord(report.rawPayload)), goalEventApplyFailure: failure };
+      console.warn("goal event apply failed; exact-result scoring will continue", { matchId, failure });
+      break;
+    }
   }
 
   const readyLineups = report.lineups.filter(
