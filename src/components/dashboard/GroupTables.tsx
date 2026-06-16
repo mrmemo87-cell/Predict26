@@ -1,35 +1,24 @@
-import type { GroupTeam } from "@/lib/data/groups";
+import Link from "next/link";
+import type { GroupStandingRow } from "@/lib/data/standings";
 
 interface GroupTablesProps {
-  groups: Record<string, GroupTeam[]>;
+  groups: Record<string, GroupStandingRow[]>;
   userCountryCode: string;
 }
 
-type StandingRow = GroupTeam & {
-  played: number;
-  won: number;
-  drawn: number;
-  lost: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
-  points: number;
-};
-
-const columns = ["#", "Team", "MP", "W", "D", "L", "GF", "GA", "GD", "Pts"];
-
-const toDefaultStandingRows = (teams: GroupTeam[]): StandingRow[] =>
-  teams.map((team) => ({
-    ...team,
-    played: 0,
-    won: 0,
-    drawn: 0,
-    lost: 0,
-    goalsFor: 0,
-    goalsAgainst: 0,
-    goalDifference: 0,
-    points: 0,
-  }));
+const columns = [
+  "#",
+  "Team",
+  "MP",
+  "W",
+  "D",
+  "L",
+  "GF",
+  "GA",
+  "GD",
+  "Form",
+  "Pts",
+];
 
 export default function GroupTables({
   groups,
@@ -53,15 +42,15 @@ export default function GroupTables({
           </h2>
         </div>
         <p className="max-w-xl text-sm leading-6 text-gray-600">
-          Tables are prepared from the loaded group/team data. Stats stay at 0
-          until official results are available. Swipe sideways on small screens
-          to see every column.
+          Live from finished matches with final scores. Basic table sorting:
+          points, GD, GF. Swipe sideways on small screens to see every column.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         {groupNames.map((groupName) => {
-          const standings = toDefaultStandingRows(groups[groupName]);
+          const standings = groups[groupName];
+          const hasFinishedMatch = standings.some((team) => team.played > 0);
 
           return (
             <article
@@ -73,7 +62,7 @@ export default function GroupTables({
                   Group {groupName}
                 </h3>
                 <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
-                  {standings.length} teams
+                  Last updated from scored matches
                 </span>
               </div>
 
@@ -108,15 +97,16 @@ export default function GroupTables({
                       return (
                         <tr
                           key={team.country_code}
-                          className={
-                            isUser ? "bg-gold/10" : "hover:bg-emerald-50/60"
-                          }
+                          className={`${index < 2 ? "bg-emerald-50/70" : ""} ${isUser ? "bg-gold/10" : "hover:bg-emerald-50/60"}`}
                         >
                           <td className="px-3 py-3 text-center font-black text-gray-700">
                             {index + 1}
                           </td>
                           <th scope="row" className="px-3 py-3">
-                            <span className="flex min-w-0 items-center gap-3">
+                            <Link
+                              href={`/team/${team.country_code}`}
+                              className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                            >
                               {team.flag_emoji && (
                                 <span className="text-xl" aria-hidden="true">
                                   {team.flag_emoji}
@@ -135,7 +125,7 @@ export default function GroupTables({
                                   You
                                 </span>
                               )}
-                            </span>
+                            </Link>
                           </th>
                           <td className="px-3 py-3 text-center font-semibold text-gray-700">
                             {team.played}
@@ -156,7 +146,25 @@ export default function GroupTables({
                             {team.goalsAgainst}
                           </td>
                           <td className="px-3 py-3 text-center font-semibold text-gray-700">
-                            {team.goalDifference}
+                            {team.goalDifference > 0
+                              ? `+${team.goalDifference}`
+                              : team.goalDifference}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <div className="flex justify-center gap-1">
+                              {team.form.length > 0 ? (
+                                team.form.map((result, i) => (
+                                  <span
+                                    key={`${team.country_code}-${i}`}
+                                    className={`h-6 w-6 rounded-full text-[10px] font-black leading-6 ${result === "W" ? "bg-emerald-100 text-emerald-800" : result === "D" ? "bg-gray-100 text-gray-700" : "bg-red-50 text-red-700"}`}
+                                  >
+                                    {result}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-3 text-center text-base font-black text-gold-dark">
                             {team.points}
@@ -166,6 +174,11 @@ export default function GroupTables({
                     })}
                   </tbody>
                 </table>
+                {!hasFinishedMatch && (
+                  <div className="border-t border-dashed border-gray-200 bg-white px-4 py-5 text-center text-sm font-semibold text-gray-500">
+                    Standings will update after the first group match.
+                  </div>
+                )}
               </div>
             </article>
           );

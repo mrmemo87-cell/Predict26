@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { countryCodesMatch, getCountryFlag, resolveCountryFlag } from "@/lib/domain/countries";
+import {
+  countryCodesMatch,
+  getCountryFlag,
+  resolveCountryFlag,
+} from "@/lib/domain/countries";
 import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 
 interface HeroMatch {
@@ -34,7 +38,10 @@ function formatStage(stage: string | null): string {
 
 function TeamBlock({ name, code }: { name: string; code: string | null }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col items-center rounded-2xl border border-white/70 bg-white/90 px-4 py-5 text-center shadow-sm">
+    <Link
+      href={code ? `/team/${code}` : "#"}
+      className="flex min-w-0 flex-1 flex-col items-center rounded-2xl border border-white/70 bg-white/90 px-4 py-5 text-center shadow-sm transition hover:border-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+    >
       {getCountryFlag(code) && (
         <span className="text-4xl" aria-hidden="true">
           {getCountryFlag(code)}
@@ -48,7 +55,7 @@ function TeamBlock({ name, code }: { name: string; code: string | null }) {
           {code}
         </span>
       )}
-    </div>
+    </Link>
   );
 }
 

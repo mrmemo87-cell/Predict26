@@ -76,8 +76,8 @@ function StatusBadge({
 }
 
 function TeamLabel({ name, code }: { name: string; code: string | null }) {
-  return (
-    <span className="flex min-w-0 items-center gap-2">
+  const content = (
+    <>
       {getCountryFlag(code) && (
         <span className="text-lg" aria-hidden="true">
           {getCountryFlag(code)}
@@ -91,7 +91,19 @@ function TeamLabel({ name, code }: { name: string; code: string | null }) {
           {code}
         </span>
       )}
-    </span>
+    </>
+  );
+
+  if (!code)
+    return <span className="flex min-w-0 items-center gap-2">{content}</span>;
+
+  return (
+    <Link
+      href={`/team/${code}`}
+      className="flex min-w-0 items-center gap-2 rounded-lg hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+    >
+      {content}
+    </Link>
   );
 }
 
