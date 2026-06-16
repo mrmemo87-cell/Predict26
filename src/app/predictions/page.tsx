@@ -8,6 +8,7 @@ import {
   formatFlaggedLabel,
   resolveCountryFlag,
 } from "@/lib/domain/countries";
+import { WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT } from "@/lib/domain/constants";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import {
   savePossessionPrediction,
@@ -173,7 +174,7 @@ export default async function PredictionsPage({
     { data: championPredictions },
     { data: countryFlagRows },
   ] = await Promise.all([
-    fetchUpcomingPredictionMatches(supabase, 20),
+    fetchUpcomingPredictionMatches(supabase, WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT),
     supabase
       .from("predictions")
       .select("match_id, home_score, away_score")

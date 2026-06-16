@@ -9,6 +9,7 @@ import PulsePreview from "@/components/dashboard/PulsePreview";
 import GroupTables from "@/components/dashboard/GroupTables";
 import UserCountryBadge from "@/components/dashboard/UserCountryBadge";
 import { countryCodesMatch } from "@/lib/domain/countries";
+import { WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT } from "@/lib/domain/constants";
 import { fetchUpcomingPredictionMatches } from "@/lib/data/upcomingPredictionMatches";
 import { fetchWorldCupGroups } from "@/lib/data/groups";
 import { fetchDashboardPulsePosts } from "@/lib/data/pulse";
@@ -47,7 +48,7 @@ export default async function DashboardPage() {
       .select("display_name, username, avatar_url, country_code, points, is_founder, referral_code")
       .eq("id", user.id)
       .maybeSingle(),
-    fetchUpcomingPredictionMatches(supabase, 20),
+    fetchUpcomingPredictionMatches(supabase, WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT),
     fetchDashboardPulsePosts(supabase),
     supabase
       .from("predictions")
