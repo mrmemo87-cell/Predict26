@@ -22,6 +22,11 @@ import ChampionPicksCard, {
 import LineupPredictionModal from "./LineupPredictionModal";
 import ScrollToMatch from "./ScrollToMatch";
 import {
+  formatCountdown,
+  getMatchOperationalStatus,
+  statusChipClass,
+} from "@/lib/domain/matchStatus";
+import {
   buildTeamCodeAliasMap,
   normalizeTeamCode,
   resolveMatchSideTeamCode,
@@ -104,6 +109,7 @@ type SearchParams = Promise<{
   match?: string;
   bonus_error?: string;
   bonus_saved?: string;
+  tab?: string;
 }>;
 
 const POSSESSION_OPTIONS = [
@@ -174,7 +180,10 @@ export default async function PredictionsPage({
     { data: championPredictions },
     { data: countryFlagRows },
   ] = await Promise.all([
-    fetchUpcomingPredictionMatches(supabase, WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT),
+    fetchUpcomingPredictionMatches(
+      supabase,
+      WORLD_CUP_2026_GROUP_STAGE_MATCH_COUNT,
+    ),
     supabase
       .from("predictions")
       .select("match_id, home_score, away_score")
@@ -338,6 +347,77 @@ export default async function PredictionsPage({
       .map((player) => [player.playerId, player]),
   );
   const now = new Date();
+  const statusByMatch = new Map(
+    matches.map((match) => [match.id, getMatchOperationalStatus(match, now)]),
+  );
+  const upcomingOrdered = matches
+    .filter((match) => match.kickoff_at && new Date(match.kickoff_at) > now)
+    .sort(
+      (a, b) =>
+        new Date(a.kickoff_at!).getTime() - new Date(b.kickoff_at!).getTime(),
+    );
+  const upcomingTenIds = new Set(
+    upcomingOrdered.slice(0, 10).map((match) => match.id),
+  );
+  const laterIds = new Set(upcomingOrdered.slice(10).map((match) => match.id));
+  const needsPredictionIds = new Set(
+    matches
+      .filter((match) => {
+        const saved = scoresByMatch.get(match.id);
+        const status = getMatchOperationalStatus(
+          { ...match, userPrediction: saved },
+          now,
+        );
+        return status.exactPredictionOpen && !status.userHasPrediction;
+      })
+      .map((match) => match.id),
+  );
+  const tabDefinitions = [
+    {
+      key: "needs",
+      label: "Needs prediction",
+      matches: matches.filter((match) => needsPredictionIds.has(match.id)),
+    },
+    {
+      key: "upcoming",
+      label: "Upcoming 10",
+      matches: matches.filter((match) => upcomingTenIds.has(match.id)),
+    },
+    {
+      key: "locked",
+      label: "Locked / Awaiting result",
+      matches: matches.filter((match) => {
+        const status = statusByMatch.get(match.id);
+        return status && !status.exactPredictionOpen && !status.isFullyScored;
+      }),
+    },
+    {
+      key: "scored",
+      label: "Scored / Finished",
+      matches: matches.filter(
+        (match) => statusByMatch.get(match.id)?.isExactScored,
+      ),
+    },
+    {
+      key: "bonus",
+      label: "Bonus pending",
+      matches: matches.filter(
+        (match) => statusByMatch.get(match.id)?.isBonusPending,
+      ),
+    },
+    {
+      key: "later",
+      label: "Later matches",
+      matches: matches.filter((match) => laterIds.has(match.id)),
+    },
+    { key: "all", label: "All", matches },
+  ];
+  const defaultTab = needsPredictionIds.size > 0 ? "needs" : "upcoming";
+  const activeTab = tabDefinitions.some((tab) => tab.key === params.tab)
+    ? params.tab!
+    : defaultTab;
+  const visibleMatches =
+    tabDefinitions.find((tab) => tab.key === activeTab)?.matches ?? matches;
 
   const lineupIdsByMatchSide = (
     (lineupRes.data ?? []) as LineupPredictionRow[]
@@ -524,13 +604,28 @@ export default async function PredictionsPage({
           disabledMessage={championDisabledMessage}
         />
 
+        <nav className="sticky top-0 z-20 mb-5 -mx-4 overflow-x-auto border-y border-emerald-100 bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:rounded-2xl sm:border">
+          <div className="flex min-w-max gap-2">
+            {tabDefinitions.map((tab) => (
+              <Link
+                key={tab.key}
+                href={`/predictions?tab=${tab.key}`}
+                className={`rounded-full px-3 py-2 text-xs font-black transition ${activeTab === tab.key ? "bg-emerald-700 text-white" : "border border-gray-200 bg-white text-gray-700 hover:border-gold"}`}
+              >
+                {tab.label} ({tab.matches.length})
+              </Link>
+            ))}
+          </div>
+        </nav>
+
         <div className="space-y-4">
-          {matches.map((match) => {
+          {visibleMatches.map((match) => {
             const savedScore = scoresByMatch.get(match.id);
-            const locked =
-              match.status.toLowerCase() !== "scheduled" ||
-              !match.kickoff_at ||
-              new Date(match.kickoff_at) <= now;
+            const status = getMatchOperationalStatus(
+              { ...match, userPrediction: savedScore },
+              now,
+            );
+            const locked = !status.exactPredictionOpen;
             const isHighlighted = params.match === match.id;
             const savedPredictionLabel =
               savedScore &&
@@ -583,12 +678,13 @@ export default async function PredictionsPage({
               match.away_country_code ?? awayCode,
               flagLookup,
             );
-            const postMatchMessage = match.status === "finished"
-              ? match.sync_state_status === "fully_scored"
-                ? "Match fully scored · Bonus points added"
-                : "Final score added · Bonus points verifying · Leaderboard updating soon"
-              : null;
-            const lineupLocked = locked || (!!match.kickoff_at && new Date(match.kickoff_at).getTime() - now.getTime() <= 120 * 60_000);
+            const postMatchMessage =
+              match.status === "finished"
+                ? match.sync_state_status === "fully_scored"
+                  ? "Match fully scored · Bonus points added"
+                  : "Final score added · Bonus points verifying · Leaderboard updating soon"
+                : null;
+            const lineupLocked = !status.lineupPredictionOpen;
 
             return (
               <article
@@ -615,12 +711,22 @@ export default async function PredictionsPage({
                     <h2 className="mt-2 text-xl font-black text-gray-900 sm:text-2xl">
                       <span className="inline-flex min-w-0 items-center gap-2">
                         {homeFlag && <span aria-hidden="true">{homeFlag}</span>}
-                        <span className="truncate">{match.home_team}</span>
+                        <Link
+                          href={`/team/${match.home_country_code ?? homeCode}`}
+                          className="truncate hover:text-gold"
+                        >
+                          {match.home_team}
+                        </Link>
                       </span>{" "}
                       <span className="text-gold">vs</span>{" "}
                       <span className="inline-flex min-w-0 items-center gap-2">
                         {awayFlag && <span aria-hidden="true">{awayFlag}</span>}
-                        <span className="truncate">{match.away_team}</span>
+                        <Link
+                          href={`/team/${match.away_country_code ?? awayCode}`}
+                          className="truncate hover:text-gold"
+                        >
+                          {match.away_team}
+                        </Link>
                       </span>
                     </h2>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
@@ -628,8 +734,17 @@ export default async function PredictionsPage({
                         {match.stage || "Group stage"}
                       </span>
                       <span className="rounded-full bg-gray-100 px-3 py-1">
-                        Predict before kickoff
+                        Exact locks at kickoff
                       </span>
+                      <span className="rounded-full bg-gray-100 px-3 py-1">
+                        Starting XI locks 2h before kickoff
+                      </span>
+                      {match.home_score !== null &&
+                        match.away_score !== null && (
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 font-bold text-emerald-800">
+                            Final: {match.home_score} - {match.away_score}
+                          </span>
+                        )}
                     </div>
                     {savedPredictionLabel && (
                       <p className="mt-2 text-sm font-medium text-gray-500">
@@ -646,9 +761,10 @@ export default async function PredictionsPage({
                     )}
                   </div>
                   <span
-                    className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${locked ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+                    className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusChipClass(status.urgency)}`}
                   >
-                    {locked ? "Prediction closed" : "Lock your pick"}
+                    {status.userStatusLabel} ·{" "}
+                    {formatCountdown(status.countdownMs)}
                   </span>
                 </div>
 
@@ -703,7 +819,11 @@ export default async function PredictionsPage({
                       </label>
                     </div>
                     <PendingSubmitButton
-                      idleText={savedPredictionLabel ? "Update prediction" : "Lock your pick"}
+                      idleText={
+                        savedPredictionLabel
+                          ? "Update prediction"
+                          : "Lock your pick"
+                      }
                       pendingText="Saving pick..."
                       className="rounded-2xl border border-emerald-700 bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     />
@@ -718,7 +838,8 @@ export default async function PredictionsPage({
                       </h3>
                       <p className="mt-1 text-xs text-gray-500">
                         Pick each team&apos;s starting XI in a pitch modal.
-                        Locks 120 minutes before kickoff; official XIs can be imported after the match.
+                        Locks 120 minutes before kickoff; official XIs can be
+                        imported after the match.
                       </p>
                     </div>
                     <LineupPredictionModal
@@ -796,7 +917,11 @@ export default async function PredictionsPage({
                           ))}
                         </div>
                         <PendingSubmitButton
-                          idleText={savedPossession ? "Update possession pick" : "Save possession pick"}
+                          idleText={
+                            savedPossession
+                              ? "Update possession pick"
+                              : "Save possession pick"
+                          }
                           pendingText="Saving..."
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
                         />
@@ -896,7 +1021,11 @@ export default async function PredictionsPage({
                           </p>
                         )}
                         <PendingSubmitButton
-                          idleText={savedScorerIds.length > 0 ? "Update scorer picks" : "Save scorer picks"}
+                          idleText={
+                            savedScorerIds.length > 0
+                              ? "Update scorer picks"
+                              : "Save scorer picks"
+                          }
                           pendingText="Saving scorers..."
                           className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:border-gold hover:text-gold-dark"
                         />
@@ -908,9 +1037,9 @@ export default async function PredictionsPage({
             );
           })}
 
-          {matches.length === 0 && (
+          {visibleMatches.length === 0 && (
             <div className="rounded-3xl border border-gray-200 bg-white p-10 text-center text-gray-500">
-              Upcoming prediction matches will appear here soon.
+              No matches in this tab yet. Try Upcoming 10 or All.
             </div>
           )}
         </div>
