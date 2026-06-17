@@ -262,6 +262,28 @@ export default async function LeaderboardPage({
           </form>
         </section>
 
+
+        {displayedRows.length > 0 && (
+          <section className="mb-6 grid grid-cols-3 items-end gap-2">
+            {displayedRows.slice(0, 3).map((row, index) => {
+              const rank = countryFilter ? row.countryRank : row.globalRank;
+              const isWinner = index === 0;
+              return (
+                <div
+                  key={`podium-${row.player.id}`}
+                  className={`rounded-3xl border bg-white p-3 text-center shadow-sm ${isWinner ? "order-2 border-gold/40 pb-6" : index === 1 ? "order-1 border-gray-200" : "order-3 border-gray-200"}`}
+                >
+                  <div className="text-3xl">{rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉"}</div>
+                  <p className="mt-2 truncate text-sm font-black text-gray-900">
+                    {row.player.display_name || row.player.username || "Player"}
+                  </p>
+                  <p className="text-lg font-black gold-text-gradient">{row.player.points ?? 0}</p>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-gray-500">pts</p>
+                </div>
+              );
+            })}
+          </section>
+        )}
         <div
           className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm"
           aria-label={title}

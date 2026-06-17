@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PendingSubmitButton from "@/components/PendingSubmitButton";
+import StatusChip from "@/components/ui/StatusChip";
 import MatchTimeBlock from "@/components/matches/MatchTimeBlock";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -165,7 +166,7 @@ export default async function PredictionsPage({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("country_code, created_at")
+    .select("country_code, created_at, points")
     .eq("id", user.id)
     .single();
 
@@ -418,6 +419,18 @@ export default async function PredictionsPage({
     : defaultTab;
   const visibleMatches =
     tabDefinitions.find((tab) => tab.key === activeTab)?.matches ?? matches;
+  const savedPredictionCount = scoresByMatch.size;
+  const lockedCount = matches.filter((match) => {
+    const saved = scoresByMatch.get(match.id);
+    return !getMatchOperationalStatus({ ...match, userPrediction: saved }, now)
+      .exactPredictionOpen;
+  }).length;
+  const userPoints = profile?.points ?? 0;
+  const nextActionMatch =
+    matches.find((match) => needsPredictionIds.has(match.id)) ??
+    upcomingOrdered[0] ??
+    visibleMatches[0] ??
+    null;
 
   const lineupIdsByMatchSide = (
     (lineupRes.data ?? []) as LineupPredictionRow[]
@@ -490,12 +503,12 @@ export default async function PredictionsPage({
     const isUnavailable = !configOpen || !eligibleByJoinTime || !deadline;
     const statusLabel = isOpen
       ? selectedTeamCode
-        ? "Saved / open"
+        ? "Saved"
         : "Open"
       : selectedTeamCode
-        ? "Saved / locked"
+        ? "Locked"
         : isUnavailable
-          ? "Coming soon"
+          ? "Soon"
           : "Locked";
 
     return {
@@ -543,33 +556,18 @@ export default async function PredictionsPage({
           </div>
         </header>
 
-        <section className="mb-8 overflow-hidden rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm sm:p-8">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-700">
-            World Cup 2026 match center
+        <section className="mb-5 overflow-hidden rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-6">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-700">
+            Match center
           </p>
           <h1 className="text-3xl font-black text-gray-900 sm:text-5xl">
-            Predict the <span className="gold-text-gradient">exact score</span>
+            Exact score <span className="gold-text-gradient">picks</span>
           </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-gray-600">
-            Enter the exact final score before kickoff. Bonus picks are optional
-            and save separately, so the core score prediction stays simple.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2 text-xs font-bold">
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">
-              Locks at kickoff
-            </span>
-            <span className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-gold-dark">
-              Exact score: 5 pts
-            </span>
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-gray-700">
-              Correct result: 2 pts
-            </span>
-            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">
-              Possession: 1 pt
-            </span>
-            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">
-              Scorers: 1 each
-            </span>
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            <div className="rounded-2xl border border-red-100 bg-red-50 p-3 text-center"><p className="text-xl font-black text-red-700">{needsPredictionIds.size}</p><p className="text-[10px] font-black uppercase text-red-700">Needs</p></div>
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center"><p className="text-xl font-black text-emerald-800">{savedPredictionCount}</p><p className="text-[10px] font-black uppercase text-emerald-800">Saved</p></div>
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-center"><p className="text-xl font-black text-gray-800">{lockedCount}</p><p className="text-[10px] font-black uppercase text-gray-600">Locked</p></div>
+            <div className="rounded-2xl border border-gold/30 bg-gold/10 p-3 text-center"><p className="text-xl font-black text-gold-dark">{userPoints}</p><p className="text-[10px] font-black uppercase text-gold-dark">Points</p></div>
           </div>
         </section>
 
@@ -603,6 +601,30 @@ export default async function PredictionsPage({
           picks={championPickStates}
           disabledMessage={championDisabledMessage}
         />
+
+        {nextActionMatch && (
+          <section className="mb-5 rounded-3xl border border-emerald-200 bg-emerald-700 p-4 text-white shadow-sm">
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-100">
+              Next action
+            </p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-black">
+                  {nextActionMatch.home_team} vs {nextActionMatch.away_team}
+                </h2>
+                <p className="text-sm font-bold text-emerald-50">
+                  Locks {formatCountdown(getMatchOperationalStatus(nextActionMatch, now).countdownMs)}
+                </p>
+              </div>
+              <Link
+                href={`/predictions?match=${nextActionMatch.id}`}
+                className="shrink-0 rounded-full bg-white px-4 py-2 text-xs font-black text-emerald-800"
+              >
+                Predict
+              </Link>
+            </div>
+          </section>
+        )}
 
         <nav className="sticky top-0 z-20 mb-5 -mx-4 overflow-x-auto border-y border-emerald-100 bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:rounded-2xl sm:border">
           <div className="flex min-w-max gap-2">
@@ -769,9 +791,8 @@ export default async function PredictionsPage({
                 </div>
 
                 {locked ? (
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600">
-                    Prediction closed because kickoff has passed or this match
-                    is not currently scheduled.
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black text-gray-600">
+                    Locked {savedPredictionLabel ? `· Saved ${savedPredictionLabel}` : ""}
                   </div>
                 ) : (
                   <form
@@ -821,8 +842,8 @@ export default async function PredictionsPage({
                     <PendingSubmitButton
                       idleText={
                         savedPredictionLabel
-                          ? "Update prediction"
-                          : "Lock your pick"
+                          ? "Edit prediction"
+                          : "Predict"
                       }
                       pendingText="Saving pick..."
                       className="rounded-2xl border border-emerald-700 bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
@@ -830,16 +851,25 @@ export default async function PredictionsPage({
                   </form>
                 )}
 
-                <section className="mt-4 rounded-2xl border border-emerald-100 bg-white/80 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <details className="mt-4 rounded-2xl border border-emerald-100 bg-white/80 p-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
                     <div>
                       <h3 className="text-sm font-black text-gray-900">
-                        Lineup Prediction
+                        Bonus picks
+                      </h3>
+                      <p className="mt-1 text-xs font-bold text-gray-500">
+                        XI {savedLineups.home.length + savedLineups.away.length}/22 · Scorers {savedScorerIds.length}/4
+                      </p>
+                    </div>
+                    <StatusChip label={lineupLocked ? "Locked" : "Open"} tone={lineupLocked ? "gray" : "blue"} />
+                  </summary>
+                  <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-black text-gray-900">
+                        Starting XI
                       </h3>
                       <p className="mt-1 text-xs text-gray-500">
-                        Pick each team&apos;s starting XI in a pitch modal.
-                        Locks 120 minutes before kickoff; official XIs can be
-                        imported after the match.
+                        XI locks 2h before.
                       </p>
                     </div>
                     <LineupPredictionModal
@@ -859,9 +889,34 @@ export default async function PredictionsPage({
                     Saved: {homeLabel} XI {savedLineups.home.length}/11 ·{" "}
                     {awayLabel} XI {savedLineups.away.length}/11
                   </p>
-                </section>
+                </details>
 
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <details className="mt-4 rounded-2xl border border-gray-200 bg-white/80 p-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                    <div>
+                      <h3 className="text-sm font-black text-gray-900">Details</h3>
+                      <p className="mt-1 text-xs font-bold text-gray-500">Venue, locks, possession, scorers</p>
+                    </div>
+                    <StatusChip label="Open" tone="blue" />
+                  </summary>
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+                    <StatusChip label={match.stage || "Group"} tone="blue" />
+                    <StatusChip label="Exact locks kickoff" tone="gray" />
+                    <StatusChip label="XI locks 2h" tone="gray" />
+                    {match.venue ? <StatusChip label={match.venue} tone="gray" /> : null}
+                  </div>
+                </details>
+
+                <details className="mt-4 rounded-2xl border border-gray-200 bg-white/80 p-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                    <div>
+                      <h3 className="text-sm font-black text-gray-900">More bonus</h3>
+                      <p className="mt-1 text-xs font-bold text-gray-500">Possession + scorer picks</p>
+                    </div>
+                    <StatusChip label={savedPossession || savedScorerIds.length ? "Saved" : "Pending"} tone={savedPossession || savedScorerIds.length ? "green" : "amber"} />
+                  </summary>
+
+                <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 lg:grid-cols-2">
                   <section className="rounded-2xl border border-gray-200 bg-white/80 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
@@ -1033,6 +1088,18 @@ export default async function PredictionsPage({
                     )}
                   </section>
                 </div>
+                </details>
+
+                {match.status === "finished" && (
+                  <details className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                    <summary className="cursor-pointer list-none text-sm font-black text-emerald-900 [&::-webkit-details-marker]:hidden">
+                      Result · {match.home_score ?? "—"} - {match.away_score ?? "—"}
+                    </summary>
+                    <p className="mt-2 text-xs font-bold text-emerald-800">
+                      {postMatchMessage ?? "Awaiting scoring update"}
+                    </p>
+                  </details>
+                )}
               </article>
             );
           })}
