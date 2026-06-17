@@ -109,7 +109,17 @@ async function recoverStaleJobs(supabase: AdminClient) {
     .lt("started_at", staleBefore);
 }
 
-const categoriesForJob = (jobType: AdminSyncJobType): SyncMatchCategory[] | undefined => {
+const payloadCategories = (payload?: Record<string, unknown> | null): SyncMatchCategory[] | undefined => {
+  const categories = payload?.categories;
+  if (!Array.isArray(categories)) return undefined;
+  const allowed: SyncMatchCategory[] = ["exact_result", "possession", "goal_events", "lineup_home", "lineup_away"];
+  const filtered = categories.filter((category): category is SyncMatchCategory => allowed.includes(category as SyncMatchCategory));
+  return filtered.length > 0 ? filtered : undefined;
+};
+
+const categoriesForJob = (jobType: AdminSyncJobType, payload?: Record<string, unknown> | null): SyncMatchCategory[] | undefined => {
+  const requested = payloadCategories(payload);
+  if (requested) return requested;
   if (jobType === "sync_match_exact") return ["exact_result"];
   if (jobType === "sync_match_possession") return ["possession"];
   if (jobType === "sync_match_scorers") return ["goal_events"];
@@ -119,7 +129,30 @@ const categoriesForJob = (jobType: AdminSyncJobType): SyncMatchCategory[] | unde
   return undefined;
 };
 
-async function processJob(supabase: AdminClient, job: { id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number; payload?: Record<string, unknown> | null }) {
+const processedJobSummary = (result: unknown) => {
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  return ["processed", "failed", "needsReview", "scored", "skipped"]
+    .flatMap((key) => typeof record[key] === "number" ? [`${key} ${record[key]}`] : [])
+    .join(" · ") || null;
+};
+
+type ProcessableJob = {
+  id: string;
+  job_type: AdminSyncJobType;
+  match_id: string | null;
+  attempts: number;
+  payload?: Record<string, unknown> | null;
+  matches?: { home_team_name: string | null; away_team_name: string | null } | Array<{ home_team_name: string | null; away_team_name: string | null }> | null;
+};
+
+const processableJobMatchLabel = (job: ProcessableJob) => {
+  if (!job.match_id) return "Batch job";
+  const match = Array.isArray(job.matches) ? job.matches[0] : job.matches;
+  return match ? `${match.home_team_name ?? "Team TBA"} vs ${match.away_team_name ?? "Team TBA"}` : job.match_id;
+};
+
+async function processJob(supabase: AdminClient, job: ProcessableJob) {
   const startedAt = new Date().toISOString();
   await supabase
     .from("admin_sync_jobs")
@@ -135,7 +168,7 @@ async function processJob(supabase: AdminClient, job: { id: string; job_type: Ad
       result = await syncFinishedMatches();
     } else {
       if (!job.match_id) throw new Error(`${job.job_type} requires match_id`);
-      result = await syncFinishedMatches(undefined, job.match_id, { categories: categoriesForJob(job.job_type) });
+      result = await syncFinishedMatches(undefined, job.match_id, { categories: categoriesForJob(job.job_type, job.payload) });
     }
 
     const resultSummary = result as { failed?: number; needsReview?: number } | null;
@@ -146,14 +179,14 @@ async function processJob(supabase: AdminClient, job: { id: string; job_type: Ad
       .from("admin_sync_jobs")
       .update({ status, finished_at: new Date().toISOString(), error_code: status === "partial" ? "partial_success" : null, error_message: status === "partial" ? "One or more requested categories still need review." : null, result: result as Record<string, unknown> })
       .eq("id", job.id);
-    return { id: job.id, status, result };
+    return { id: job.id, matchLabel: processableJobMatchLabel(job), status, resultSummary: processedJobSummary(result), result };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown sync job failure";
     await supabase
       .from("admin_sync_jobs")
       .update({ status: "failed", finished_at: new Date().toISOString(), error_code: "job_failed", error_message: message, result: { message } })
       .eq("id", job.id);
-    return { id: job.id, status: "failed", error: message };
+    return { id: job.id, matchLabel: processableJobMatchLabel(job), status: "failed", resultSummary: message, error: message };
   }
 }
 
@@ -163,7 +196,7 @@ export async function processAdminSyncJobs(limit = DEFAULT_LIMIT) {
 
   const { data, error } = await supabase
     .from("admin_sync_jobs")
-    .select("id, job_type, match_id, attempts, payload")
+    .select("id, job_type, match_id, attempts, payload, matches(home_team_name, away_team_name)")
     .eq("status", "queued")
     .order("priority", { ascending: true })
     .order("created_at", { ascending: true })
@@ -171,7 +204,7 @@ export async function processAdminSyncJobs(limit = DEFAULT_LIMIT) {
 
   if (error) throw new Error(`Could not load queued sync jobs: ${error.message}`);
   const processed = [];
-  for (const job of (data ?? []) as Array<{ id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number; payload?: Record<string, unknown> | null }>) {
+  for (const job of (data ?? []) as ProcessableJob[]) {
     processed.push(await processJob(supabase, job));
   }
 
