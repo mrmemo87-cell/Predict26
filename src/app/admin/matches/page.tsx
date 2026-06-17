@@ -263,6 +263,7 @@ const scoringCategoryLabel = (category: string) => {
 type CurrentAdminSyncState = {
   headline: string | null;
   blockers: string[];
+  currentWarnings: string[];
   resolvedHistoricalIssues: string[];
 };
 
@@ -271,8 +272,9 @@ const currentAdminSyncState = (
   run: ProviderSyncRunRow | null,
   latestScoringRun: MatchScoringRunSummary | undefined,
 ): CurrentAdminSyncState => {
+  const exactCompleted = state?.exact_result_status === "ready" || latestScoringRun?.completed.includes("match_exact_result") === true;
   const blockers: string[] = [
-    ["Exact result", state?.exact_result_status],
+    ["Exact result", exactCompleted ? "ready" : state?.exact_result_status],
     ["Possession", state?.possession_status],
     ["Scorers", state?.goal_events_status],
     ["Home XI mapping incomplete", state?.lineup_home_status],
@@ -281,14 +283,30 @@ const currentAdminSyncState = (
   const lineupBlockers = blockers.filter((blocker) => blocker.includes("XI"));
   const stateMetadata = metadataRecord(state?.metadata);
   const warnings = stringArray(stateMetadata.warnings);
+  const categoryErrors = metadataRecord(stateMetadata.categoryErrors);
+  const categoryStatusByErrorKey: Record<string, string | null | undefined> = {
+    exact_error: state?.exact_result_status,
+    possession_error: state?.possession_status,
+    scorer_error: state?.goal_events_status,
+    home_lineup_error: state?.lineup_home_status,
+    away_lineup_error: state?.lineup_away_status,
+  };
+  const categoryErrorEntries = Object.entries(categoryErrors)
+    .filter(([, value]) => typeof value === "string" && value.length > 0) as Array<[string, string]>;
+  const unresolvedCategoryErrors = categoryErrorEntries
+    .filter(([key]) => categoryStatusByErrorKey[key] !== "ready" && key !== "bonus_error")
+    .map(([, value]) => value);
+  const resolvedCategoryErrors = categoryErrorEntries
+    .filter(([key]) => categoryStatusByErrorKey[key] === "ready" || key === "bonus_error")
+    .map(([, value]) => value);
   const scorerCurrentlyReady = state?.goal_events_status === "ready" || latestScoringRun?.completed.includes("match_scorer") === true;
-  const historical = [
+  const activeWarnings = warnings.filter((issue) => !(scorerCurrentlyReady && issue.includes("goal_event_apply_failed")));
+  const currentWarnings = [...activeWarnings, ...unresolvedCategoryErrors];
+  const resolvedHistoricalIssues = [
     ...(typeof run?.error_message === "string" && run.error_message.length > 0 ? [run.error_message] : []),
-    ...warnings,
-  ].filter((issue) => !(scorerCurrentlyReady && issue.includes("goal_event_apply_failed")));
-  const resolvedHistoricalIssues = historical.length < ((run?.error_message ? 1 : 0) + warnings.length)
-    ? ["previous goal event upsert failed, resolved after retry", ...historical]
-    : historical;
+    ...warnings.filter((issue) => !activeWarnings.includes(issue)),
+    ...resolvedCategoryErrors,
+  ].filter((issue, index, issues) => issues.indexOf(issue) === index);
 
   let headline: string | null = null;
   if (lineupBlockers.length === 2 && blockers.length === 2) headline = "Bonus pending: Home XI and Away XI incomplete";
@@ -296,7 +314,7 @@ const currentAdminSyncState = (
   else if (blockers.length > 0) headline = `Current blocker: ${blockers.join(", ")}`;
   else if (state?.status === "fully_scored") headline = "Fully scored";
 
-  return { headline, blockers, resolvedHistoricalIssues };
+  return { headline, blockers, currentWarnings, resolvedHistoricalIssues };
 };
 
 const syncStatusClasses = (status: string | null | undefined) => {
@@ -434,7 +452,7 @@ function LatestSyncRunSummary({
   const runMetadata = metadataRecord(run?.metadata);
   const adminState = currentAdminSyncState(state, run, latestScoringRun);
   const reason = adminState.headline;
-  const warnings = Array.isArray(stateMetadata.warnings) ? stateMetadata.warnings.filter((item): item is string => typeof item === "string") : [];
+  const warnings = adminState.currentWarnings;
   const sources = Array.isArray(stateMetadata.sources) ? stateMetadata.sources : Array.isArray(runMetadata.sources) ? runMetadata.sources : [];
   const sourceNames = sources
     .map((source) => metadataRecord(source).label ?? metadataRecord(source).host ?? metadataRecord(source).url)
@@ -955,6 +973,7 @@ export default async function AdminMatchManagerPage({
               const state = syncState(match);
               const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
               const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
+              const exactScoreable = match.status === "finished" && match.home_score !== null && match.away_score !== null && !exactScored;
               const problem = state?.status === "needs_review" ? metadataRecord(state.metadata).reason ?? "waiting admin review" : state?.status === "bonus_pending" ? "bonus categories pending" : !exactScored && match.status === "finished" ? "exact result not scored" : "final score missing after kickoff + 120 min";
               return (
                 <article key={match.id} className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -964,7 +983,7 @@ export default async function AdminMatchManagerPage({
                     <p className="text-sm text-gray-600">Suggested action: exact score can be scored independently; retry only the pending bonus categories or open manual review for mapping/data issues.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="score_match" /><PendingSubmitButton idleText="Score exact now" pendingText="Queueing..." className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white" /></form>
+                    {exactScoreable && <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="score_match" /><PendingSubmitButton idleText="Score exact now" pendingText="Queueing..." className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white" /></form>}
                     <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="sync_match_bonus" /><PendingSubmitButton idleText="Retry bonus" pendingText="Queueing..." className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700" /></form>
                     <Link href={`/admin/matches?edit=${match.id}`} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700">Manual review</Link>
                   </div>

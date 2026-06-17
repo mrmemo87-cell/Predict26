@@ -111,7 +111,10 @@ async function processJob(supabase: AdminClient, job: { id: string; job_type: Ad
       result = await syncFinishedMatches(undefined, job.match_id);
     }
 
-    const status = typeof result === "object" && result && "failed" in result && Number((result as { failed?: number }).failed ?? 0) > 0 ? "partial" : "completed";
+    const resultSummary = result as { failed?: number; needsReview?: number } | null;
+    const status = typeof result === "object" && result && (
+      Number(resultSummary?.failed ?? 0) > 0 || Number(resultSummary?.needsReview ?? 0) > 0
+    ) ? "partial" : "completed";
     await supabase
       .from("admin_sync_jobs")
       .update({ status, finished_at: new Date().toISOString(), result: result as Record<string, unknown> })

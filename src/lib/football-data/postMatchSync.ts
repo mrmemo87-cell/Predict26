@@ -71,6 +71,7 @@ type CompetitionTeamPlayerRow = {
 };
 
 type ScoringRunRow = { id: string };
+type ExistingSyncState = NonNullable<EligibleMatchRow["sync_state"]>[number];
 
 const DEFAULT_PROVIDER = openAiWebSearchFootballDataProvider;
 const EXPECTED_FULL_TIME_MINUTES = 120;
@@ -135,6 +136,29 @@ const missingStatuses = () => ({
   lineup_home: "missing",
   lineup_away: "missing",
 });
+
+const currentOrMissingStatuses = (state: ExistingSyncState | null) => ({
+  exact_result: state?.exact_result_status ?? "missing",
+  possession: state?.possession_status ?? "missing",
+  goal_events: state?.goal_events_status ?? "missing",
+  lineup_home: state?.lineup_home_status ?? "missing",
+  lineup_away: state?.lineup_away_status ?? "missing",
+});
+
+const CATEGORY_ERROR_KEYS = {
+  exact_result: "exact_error",
+  possession: "possession_error",
+  goal_events: "scorer_error",
+  lineup_home: "home_lineup_error",
+  lineup_away: "away_lineup_error",
+} as const;
+
+const categoryErrorMetadata = (category: keyof typeof CATEGORY_ERROR_KEYS, message: string) => ({
+  categoryErrors: { [CATEGORY_ERROR_KEYS[category]]: message },
+});
+
+const hasSavedFinalScore = (match: EligibleMatchRow) =>
+  match.status === "finished" && match.home_score !== null && match.away_score !== null;
 
 const reasonMessage = (reason: SyncFailureReason) => {
   const messages: Record<SyncFailureReason, string> = {
@@ -595,7 +619,27 @@ async function stageReport(
   }
 }
 
-async function applyCanonicalData(
+async function applyExactResult(
+  supabase: AdminClient,
+  matchId: string,
+  report: ProviderPostMatchReport,
+  statuses: Record<string, string>,
+) {
+  if (statuses.exact_result !== "ready" || !report.isFinal || report.homeScore === null || report.awayScore === null) return false;
+
+  const { error } = await supabase
+    .from("matches")
+    .update({
+      status: "finished",
+      home_score: report.homeScore,
+      away_score: report.awayScore,
+    })
+    .eq("id", matchId);
+  if (error) throw new Error(`Could not apply final score: ${error.message}`);
+  return true;
+}
+
+async function applyBonusCanonicalData(
   supabase: AdminClient,
   provider: FootballProviderName,
   matchId: string,
@@ -604,18 +648,6 @@ async function applyCanonicalData(
   aliases: Map<string, string>,
   statuses: Record<string, string>,
 ) {
-  if (statuses.exact_result === "ready" && report.isFinal && report.homeScore !== null && report.awayScore !== null) {
-    const { error } = await supabase
-      .from("matches")
-      .update({
-        status: "finished",
-        home_score: report.homeScore,
-        away_score: report.awayScore,
-      })
-      .eq("id", matchId);
-    if (error) throw new Error(`Could not apply final score: ${error.message}`);
-  }
-
   if (statuses.possession === "ready") for (const stat of report.possession) {
     const { error } = await supabase.from("match_stats").upsert(
       {
@@ -905,11 +937,46 @@ async function syncOneMatch(
       console.warn("provider player mapping load failed", error);
     }
     const statuses = validateReport(report, mappings);
+    if (hasSavedFinalScore(match)) {
+      statuses.exact_result = "ready";
+    }
     const lineupSquadDiagnostics = await loadLineupSquadDiagnostics(supabase, report, aliases);
     const lineupSuggestions = await loadLineupMappingSuggestions(supabase, report, aliases);
 
-    await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
-    await applyCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
+    const exactApplied = await applyExactResult(supabase, match.id, report, statuses);
+
+    const exactAlreadyScored = existingState?.exact_result_status === "ready";
+    const exactReadyFromSavedScore = hasSavedFinalScore(match);
+    let scored = false;
+    if (statuses.exact_result === "ready" && (!exactAlreadyScored || exactApplied || exactReadyFromSavedScore)) {
+      await scoreFinishedMatch(match.id);
+      scored = true;
+    }
+
+    const bonusWarnings: string[] = [];
+    const bonusCategoryErrors: Record<string, string> = {};
+    try {
+      await stageReport(supabase, provider.name, runId, match.id, report, mappings, aliases);
+      await applyBonusCanonicalData(supabase, provider.name, match.id, report, mappings, aliases, statuses);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Bonus provider data could not be applied";
+      bonusWarnings.push(detail);
+      if (detail.includes("possession")) {
+        statuses.possession = statuses.possession === "ready" ? "incomplete" : statuses.possession;
+        bonusCategoryErrors.possession_error = detail;
+      }
+      if (detail.includes("goal") || detail.includes("event")) {
+        statuses.goal_events = statuses.goal_events === "ready" ? "incomplete" : statuses.goal_events;
+        bonusCategoryErrors.scorer_error = detail;
+      }
+      if (detail.includes("lineup")) {
+        statuses.lineup_home = statuses.lineup_home === "ready" ? "incomplete" : statuses.lineup_home;
+        statuses.lineup_away = statuses.lineup_away === "ready" ? "incomplete" : statuses.lineup_away;
+        bonusCategoryErrors.home_lineup_error = detail;
+        bonusCategoryErrors.away_lineup_error = detail;
+      }
+      console.warn("bonus data apply failed after exact-result fast path", { matchId: match.id, detail });
+    }
 
     let readinessUpdated = false;
     try {
@@ -929,18 +996,13 @@ async function syncOneMatch(
       statuses.lineup_away = readiness?.lineupAwayReady ? "ready" : statuses.lineup_away;
     }
 
-    const exactAlreadyScored = existingState?.exact_result_status === "ready";
-    let scored = false;
     const newlyReadyBonus = [
       [statuses.possession, existingState?.possession_status],
       [statuses.goal_events, existingState?.goal_events_status],
       [statuses.lineup_home, existingState?.lineup_home_status],
       [statuses.lineup_away, existingState?.lineup_away_status],
     ].some(([currentStatus, previousStatus]) => currentStatus === "ready" && previousStatus !== "ready");
-    if (statuses.exact_result === "ready" && !exactAlreadyScored) {
-      await scoreFinishedMatch(match.id);
-      scored = true;
-    } else if (newlyReadyBonus) {
+    if (newlyReadyBonus) {
       await scoreFinishedMatch(match.id);
     }
 
@@ -1064,6 +1126,15 @@ async function syncOneMatch(
       bonusScoringTriggered: newlyReadyBonus,
       bonusScoringTriggerReason: newlyReadyBonus ? "new_bonus_category_ready" : "no_new_ready_bonus_category",
       bonusSyncStatus: reviewCategories.length > 0 ? (retryCount >= MAX_RETRIES ? "needs_review" : "retryable") : "complete",
+      categoryErrors: {
+        ...(bonusWarnings.length > 0 ? { bonus_error: bonusWarnings.join("; ") } : {}),
+        ...bonusCategoryErrors,
+        ...(statuses.possession === "ready" ? { possession_error: null } : {}),
+        ...(statuses.goal_events === "ready" ? { scorer_error: null } : {}),
+        ...(statuses.lineup_home === "ready" ? { home_lineup_error: null } : {}),
+        ...(statuses.lineup_away === "ready" ? { away_lineup_error: null } : {}),
+        ...(statuses.exact_result === "ready" ? { exact_error: null } : {}),
+      },
     };
     await updateSyncState(
       supabase,
@@ -1074,7 +1145,7 @@ async function syncOneMatch(
       retryCount,
       undefined,
       warnings.some((warning) => warning.startsWith("player_mapping_failed")) ? "player_mapping_failed" : undefined,
-      warnings,
+      [...warnings, ...bonusWarnings],
       syncMetadata,
     );
     await finishSyncRun(supabase, runId, {
@@ -1089,14 +1160,47 @@ async function syncOneMatch(
 
     return scored ? "scored" : reviewCategories.length > 0 ? "needs_review" : "skipped";
   } catch (error) {
-    const statuses = missingStatuses();
     const reason = syncReasonForError(provider.name, error);
     const detail = syncErrorMessage(reason, error);
-    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason, [detail], { reasonDetails: detail });
+
+    if (hasSavedFinalScore(match)) {
+      const statuses = currentOrMissingStatuses(existingState);
+      statuses.exact_result = "ready";
+      await scoreFinishedMatch(match.id);
+      await updateSyncState(
+        supabase,
+        match.id,
+        provider.name,
+        runId,
+        statuses,
+        retryCount,
+        reviewList(statuses).length > 0 ? "bonus_pending" : "fully_scored",
+        reason,
+        [],
+        {
+          reasonDetails: detail,
+          exactResultScored: true,
+          exactResultSource: "saved_final_score",
+          categoryErrors: { bonus_error: detail, exact_error: null },
+        },
+      );
+      await finishSyncRun(supabase, runId, {
+        status: "partial",
+        records_processed: 1,
+        categories_ready: categoryList(statuses),
+        categories_needing_review: reviewList(statuses),
+        error_message: detail,
+        metadata: { reason, detail, exact: "scored_from_saved_final_score" },
+      });
+      return "scored" as const;
+    }
+
+    const statuses = { ...currentOrMissingStatuses(existingState), exact_result: "missing" };
+    await updateSyncState(supabase, match.id, provider.name, runId, statuses, retryCount, "needs_review", reason, [detail], { reasonDetails: detail, ...categoryErrorMetadata("exact_result", detail) });
     await finishSyncRun(supabase, runId, {
       status: provider.name === "google-openai" ? "needs_review" : "failed",
       records_processed: 0,
-      categories_needing_review: Object.keys(statuses),
+      categories_needing_review: reviewList(statuses),
       error_message: detail,
       metadata: { reason, detail },
     });
