@@ -147,7 +147,19 @@ const formatOpenAiHttpError = (status: number, rawBody: string) => {
   return { details, message: parts.join("; ") };
 };
 
-const openAiRequestBody = (context: ProviderPostMatchReportContext | undefined, mode: OpenAiRequestMode) => ({
+const requestedCategories = (context?: ProviderPostMatchReportContext & { categories?: ProviderPostMatchReportCategory[] }) => {
+  const categories = context?.categories?.filter((category) => CATEGORY_KEYS.includes(category));
+  return categories && categories.length > 0 ? categories : [...CATEGORY_KEYS];
+};
+
+const categoryInstructions = (context?: ProviderPostMatchReportContext & { categories?: ProviderPostMatchReportCategory[] }) => {
+  const categories = requestedCategories(context);
+  if (categories.length === CATEGORY_KEYS.length) return `Run separate searches for exact_result, possession, goal_events, lineup_home, and lineup_away.`;
+  const labels = categories.join(", ");
+  return `Only search and extract these requested category/categories: ${labels}. Return empty arrays/null fields for non-requested categories and mark non-requested categoryStatus entries incomplete with reason "not requested". Do not re-fetch unrelated categories.`;
+};
+
+const openAiRequestBody = (context: (ProviderPostMatchReportContext & { categories?: ProviderPostMatchReportCategory[] }) | undefined, mode: OpenAiRequestMode) => ({
   model: OPENAI_MODEL,
   tools: [
     mode === "primary"
@@ -163,7 +175,7 @@ const openAiRequestBody = (context: ProviderPostMatchReportContext | undefined, 
       role: "user",
       content:
         mode === "primary"
-          ? `Find trusted public post-match sources for ${matchLabel(context)} using the category-specific queries from the system message. Run separate searches for exact_result, possession, goal_events, lineup_home, and lineup_away. Compare sources and return only the structured JSON requested.`
+          ? `Find trusted public post-match sources for ${matchLabel(context)} using the category-specific queries from the system message. ${categoryInstructions(context)} Compare sources and return only the structured JSON requested.`
           : `Search the public web for trusted post-match sources for ${matchLabel(context)}. Prefer these plain domains: ${trustedDomains().join(", ")}. Return JSON only, with source URLs in every sourceUrls/agreeingSources/conflictingSources array.`,
     },
   ],
@@ -303,7 +315,7 @@ const trustedDomains = () => TRUSTED_SOURCES.map((source) => source.host);
 const trustedSourceLabels = () =>
   TRUSTED_SOURCES.map((source) => `${source.label} (${source.host})`).join(", ");
 
-const extractionInstructions = (context?: ProviderPostMatchReportContext) => `
+const extractionInstructions = (context?: ProviderPostMatchReportContext & { categories?: ProviderPostMatchReportCategory[] }) => `
 You extract post-match soccer data for Predict26. Use the built-in web_search tool only; do not rely on any Google Custom Search data, Google sports widgets, paid sports APIs, unsourced knowledge, or live polling loops.
 Return only strict JSON matching this TypeScript shape:
 {

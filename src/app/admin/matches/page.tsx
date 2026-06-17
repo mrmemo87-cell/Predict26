@@ -123,6 +123,7 @@ type AdminSyncJobRow = {
   finished_at: string | null;
   updated_at: string;
   result: unknown;
+  payload?: unknown;
 };
 
 type ReportRow = {
@@ -185,7 +186,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   report_save_failed: "Could not update that report. Please try again.",
   invalid_bonus_readiness: "Choose a valid bonus readiness status before saving.",
   bonus_readiness_failed: "Could not update bonus data readiness. Please try again.",
-  sync_failed: "Could not sync provider data. See the match sync panel for the specific provider reason.",
+  sync_failed: "Could not queue or process the admin sync request. Provider failures are shown in the sync job panel below.",
   invalid_sync_review: "Choose a valid match before marking it reviewed.",
   sync_review_failed: "Could not mark this match reviewed. Please try again.",
 };
@@ -765,7 +766,7 @@ export default async function AdminMatchManagerPage({
     supabase.from("countries").select("code, flag_emoji"),
     supabase
       .from("admin_sync_jobs")
-      .select("id, job_type, match_id, status, attempts, max_attempts, error_code, error_message, created_at, started_at, finished_at, updated_at, result")
+      .select("id, job_type, match_id, status, attempts, max_attempts, error_code, error_message, created_at, started_at, finished_at, updated_at, result, payload")
       .order("created_at", { ascending: false })
       .limit(50),
   ]);
@@ -966,6 +967,40 @@ export default async function AdminMatchManagerPage({
           ))}
         </section>
 
+
+        <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Sync job panel</h2>
+              <p className="mt-1 text-sm text-gray-500">Admin buttons enqueue work immediately. Process queue runs a tiny batch and records per-job partial/failed results here.</p>
+            </div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">Queued · running · completed · partial · failed</p>
+          </div>
+          <div className="mt-4 space-y-3">
+            {jobRows.slice(0, 12).map((job) => {
+              const jobResult = metadataRecord(job.result);
+              const processed = Array.isArray(jobResult.processed) ? jobResult.processed : [];
+              const partialText = job.status === "partial"
+                ? (job.error_message ?? "Exact scored, bonus still pending or one requested category still needs review.")
+                : job.error_message;
+              return (
+                <article key={job.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-black text-gray-900">{statusLabel(job.job_type)} · <span className="capitalize">{statusLabel(job.status)}</span></p>
+                      <p className="text-xs text-gray-500">Created {formatAdminDate(job.created_at)} · attempts {job.attempts}/{job.max_attempts}</p>
+                      {partialText && <p className="mt-1 text-xs font-semibold text-amber-800">{partialText}</p>}
+                      {processed.length > 0 && <p className="mt-1 text-xs text-gray-600">Result: {processed.map((item) => statusLabel(String(metadataRecord(item).status ?? "processed"))).join(", ")}</p>}
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${job.status === "failed" ? "bg-rose-100 text-rose-700" : job.status === "partial" ? "bg-amber-100 text-amber-800" : job.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>{statusLabel(job.status)}</span>
+                  </div>
+                </article>
+              );
+            })}
+            {jobRows.length === 0 && <p className="text-sm text-gray-500">No sync jobs have been queued yet.</p>}
+          </div>
+        </section>
+
         <section className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-gray-900">What needs my attention?</h2>
           <div className="mt-4 space-y-3">
@@ -974,6 +1009,7 @@ export default async function AdminMatchManagerPage({
               const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
               const exactScored = summary.predictions > 0 && summary.predictions === summary.scoredPredictions;
               const exactScoreable = match.status === "finished" && match.home_score !== null && match.away_score !== null && !exactScored;
+              const retryAvailableAt = state?.next_sync_after && new Date(state.next_sync_after) > new Date() ? state.next_sync_after : null;
               const problem = state?.status === "needs_review" ? metadataRecord(state.metadata).reason ?? "waiting admin review" : state?.status === "bonus_pending" ? "bonus categories pending" : !exactScored && match.status === "finished" ? "exact result not scored" : "final score missing after kickoff + 120 min";
               return (
                 <article key={match.id} className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -984,7 +1020,7 @@ export default async function AdminMatchManagerPage({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {exactScoreable && <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="score_match" /><PendingSubmitButton idleText="Score exact now" pendingText="Queueing..." className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white" /></form>}
-                    <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="sync_match_bonus" /><PendingSubmitButton idleText="Retry bonus" pendingText="Queueing..." className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700" /></form>
+                    <form action={queueMatchSync}><input type="hidden" name="match_id" value={match.id} /><input type="hidden" name="job_type" value="sync_match_bonus" /><PendingSubmitButton idleText={retryAvailableAt ? `Retry available at ${formatAdminDate(retryAvailableAt)}` : "Retry bonus"} pendingText="Queueing..." disabled={Boolean(retryAvailableAt)} className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700" /></form>
                     <Link href={`/admin/matches?edit=${match.id}`} className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700">Manual review</Link>
                   </div>
                 </article>
@@ -1032,6 +1068,7 @@ export default async function AdminMatchManagerPage({
               const eligibility = syncEligibility(match, scoringSummary);
               const opStatus = operationalStatus(match, scoringSummary);
               const state = syncState(match);
+              const retryAvailableAt = state?.next_sync_after && new Date(state.next_sync_after) > new Date() ? state.next_sync_after : null;
               const run = latestSyncRun(match);
               const homeLabel = formatFlaggedLabel(
                 match.home_team_name,
@@ -1119,7 +1156,7 @@ export default async function AdminMatchManagerPage({
                     <form action={queueMatchSync}>
                       <input type="hidden" name="match_id" value={match.id} />
                       <input type="hidden" name="job_type" value="sync_match_bonus" />
-                      <PendingSubmitButton idleText="Queue bonus sync" pendingText="Queueing..." className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800" />
+                      <PendingSubmitButton idleText={retryAvailableAt ? `Retry available at ${formatAdminDate(retryAvailableAt)}` : "Queue bonus sync"} pendingText="Queueing..." disabled={Boolean(retryAvailableAt)} className="w-fit rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800" />
                     </form>
                     {isScoreable && (
                       <form action={scoreMatch}>

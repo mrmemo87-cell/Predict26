@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 
-import { syncFinishedMatches } from "@/lib/football-data/postMatchSync";
+import { syncFinishedMatches, type SyncMatchCategory } from "@/lib/football-data/postMatchSync";
 import { scoreFinishedMatch } from "@/lib/scoring/matchScoring";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -9,28 +9,35 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 export type AdminSyncJobType =
   | "sync_match_exact"
   | "sync_match_bonus"
+  | "sync_match_possession"
+  | "sync_match_scorers"
+  | "sync_match_home_lineup"
+  | "sync_match_away_lineup"
   | "sync_match_full"
   | "sync_finished_batch"
   | "score_match";
 
 const STALE_RUNNING_MINUTES = 15;
-const DEFAULT_LIMIT = 2;
+const DEFAULT_LIMIT = 1;
+const ABSOLUTE_LIMIT = 2;
 
 export async function queueAdminSyncJob({
   jobType,
   matchId,
   requestedBy,
   priority = 100,
+  payload,
 }: {
   jobType: AdminSyncJobType;
   matchId?: string | null;
   requestedBy?: string | null;
   priority?: number;
+  payload?: Record<string, unknown>;
 }) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("admin_sync_jobs")
-    .insert({ job_type: jobType, match_id: matchId ?? null, requested_by: requestedBy ?? null, priority })
+    .insert({ job_type: jobType, match_id: matchId ?? null, requested_by: requestedBy ?? null, priority, payload: payload ?? {} })
     .select("id")
     .single<{ id: string }>();
 
@@ -65,8 +72,18 @@ export async function queueEligibleFinishedBatch(requestedBy?: string | null, li
 
   if (eligible.length === 0) return { queued: 0, remainingEligible: 0 };
 
+  const { data: activeJobs } = await supabase
+    .from("admin_sync_jobs")
+    .select("match_id")
+    .eq("job_type", "sync_match_full")
+    .in("status", ["queued", "running"])
+    .in("match_id", eligible.map((match) => match.id));
+  const activeMatchIds = new Set((activeJobs ?? []).map((job) => job.match_id).filter(Boolean));
+  const queueable = eligible.filter((match) => !activeMatchIds.has(match.id));
+  if (queueable.length === 0) return { queued: 0, remainingEligible: eligible.length };
+
   const { error: insertError } = await supabase.from("admin_sync_jobs").insert(
-    eligible.map((match, index) => ({
+    queueable.map((match, index) => ({
       job_type: "sync_match_full",
       match_id: match.id,
       requested_by: requestedBy ?? null,
@@ -75,7 +92,7 @@ export async function queueEligibleFinishedBatch(requestedBy?: string | null, li
   );
   if (insertError) throw new Error(`Could not queue eligible matches: ${insertError.message}`);
 
-  return { queued: eligible.length, remainingEligible: Math.max(((data ?? []).length) - eligible.length, 0) };
+  return { queued: queueable.length, remainingEligible: Math.max(((data ?? []).length) - queueable.length, 0) };
 }
 
 async function recoverStaleJobs(supabase: AdminClient) {
@@ -92,7 +109,17 @@ async function recoverStaleJobs(supabase: AdminClient) {
     .lt("started_at", staleBefore);
 }
 
-async function processJob(supabase: AdminClient, job: { id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number }) {
+const categoriesForJob = (jobType: AdminSyncJobType): SyncMatchCategory[] | undefined => {
+  if (jobType === "sync_match_exact") return ["exact_result"];
+  if (jobType === "sync_match_possession") return ["possession"];
+  if (jobType === "sync_match_scorers") return ["goal_events"];
+  if (jobType === "sync_match_home_lineup") return ["lineup_home"];
+  if (jobType === "sync_match_away_lineup") return ["lineup_away"];
+  if (jobType === "sync_match_bonus") return ["possession", "goal_events", "lineup_home", "lineup_away"];
+  return undefined;
+};
+
+async function processJob(supabase: AdminClient, job: { id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number; payload?: Record<string, unknown> | null }) {
   const startedAt = new Date().toISOString();
   await supabase
     .from("admin_sync_jobs")
@@ -108,7 +135,7 @@ async function processJob(supabase: AdminClient, job: { id: string; job_type: Ad
       result = await syncFinishedMatches();
     } else {
       if (!job.match_id) throw new Error(`${job.job_type} requires match_id`);
-      result = await syncFinishedMatches(undefined, job.match_id);
+      result = await syncFinishedMatches(undefined, job.match_id, { categories: categoriesForJob(job.job_type) });
     }
 
     const resultSummary = result as { failed?: number; needsReview?: number } | null;
@@ -117,7 +144,7 @@ async function processJob(supabase: AdminClient, job: { id: string; job_type: Ad
     ) ? "partial" : "completed";
     await supabase
       .from("admin_sync_jobs")
-      .update({ status, finished_at: new Date().toISOString(), result: result as Record<string, unknown> })
+      .update({ status, finished_at: new Date().toISOString(), error_code: status === "partial" ? "partial_success" : null, error_message: status === "partial" ? "One or more requested categories still need review." : null, result: result as Record<string, unknown> })
       .eq("id", job.id);
     return { id: job.id, status, result };
   } catch (error) {
@@ -136,15 +163,15 @@ export async function processAdminSyncJobs(limit = DEFAULT_LIMIT) {
 
   const { data, error } = await supabase
     .from("admin_sync_jobs")
-    .select("id, job_type, match_id, attempts")
+    .select("id, job_type, match_id, attempts, payload")
     .eq("status", "queued")
     .order("priority", { ascending: true })
     .order("created_at", { ascending: true })
-    .limit(Math.max(1, Math.min(limit, 3)));
+    .limit(Math.max(1, Math.min(limit, ABSOLUTE_LIMIT)));
 
   if (error) throw new Error(`Could not load queued sync jobs: ${error.message}`);
   const processed = [];
-  for (const job of (data ?? []) as Array<{ id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number }>) {
+  for (const job of (data ?? []) as Array<{ id: string; job_type: AdminSyncJobType; match_id: string | null; attempts: number; payload?: Record<string, unknown> | null }>) {
     processed.push(await processJob(supabase, job));
   }
 

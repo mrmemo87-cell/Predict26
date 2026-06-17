@@ -19,6 +19,6 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const result = await processAdminSyncJobs(typeof body.limit === "number" ? body.limit : 2);
+  const result = await processAdminSyncJobs(typeof body.limit === "number" ? body.limit : 1);
   return NextResponse.json(result);
 }
