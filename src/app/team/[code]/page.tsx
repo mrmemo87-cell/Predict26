@@ -168,10 +168,10 @@ export default async function TeamPage({ params }: PageProps) {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-gray-900">
-              Fixtures & results
-            </h2>
+          <details open className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+            <summary className="cursor-pointer list-none text-xl font-black text-gray-900 [&::-webkit-details-marker]:hidden">
+              Fixtures
+            </summary>
             <div className="mt-4 space-y-3">
               {teamMatches.map((match) => {
                 const status = getMatchOperationalStatus(match);
@@ -228,10 +228,10 @@ export default async function TeamPage({ params }: PageProps) {
                 );
               })}
             </div>
-          </div>
+          </details>
           <aside className="space-y-6">
-            <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-black text-gray-900">Team stats</h2>
+            <details className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:open">
+              <summary className="cursor-pointer list-none text-xl font-black text-gray-900 [&::-webkit-details-marker]:hidden">Stats</summary>
               <p className="mt-3 text-sm text-gray-600">
                 MP {team.played} · W {team.won} · D {team.drawn} · L {team.lost}
               </p>
@@ -254,23 +254,23 @@ export default async function TeamPage({ params }: PageProps) {
                   </span>
                 )}
               </div>
-            </div>
-            <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-black text-gray-900">
-                Prediction stats
-              </h2>
+            </details>
+            <details className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+              <summary className="cursor-pointer list-none text-xl font-black text-gray-900 [&::-webkit-details-marker]:hidden">
+                Prediction trends
+              </summary>
               <p className="mt-3 text-sm text-gray-600">
                 Champion picks: {championRes.count ?? 0}
               </p>
               <p className="mt-1 text-xs text-gray-500">
                 Aggregated only. No individual picks are shown.
               </p>
-            </div>
+            </details>
           </aside>
         </section>
 
-        <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-black text-gray-900">Squad</h2>
+        <details className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+          <summary className="cursor-pointer list-none text-xl font-black text-gray-900 [&::-webkit-details-marker]:hidden">Squad</summary>
           {Object.keys(playersByPosition).length === 0 ? (
             <p className="mt-3 text-sm text-gray-500">
               Squad data will appear when available.
@@ -303,7 +303,7 @@ export default async function TeamPage({ params }: PageProps) {
               ))}
             </div>
           )}
-        </section>
+        </details>
       </div>
     </main>
   );
