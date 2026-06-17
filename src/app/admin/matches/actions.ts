@@ -170,13 +170,39 @@ export async function queueMatchSync(formData: FormData) {
   const admin = await requireAdminUser("/admin/matches");
   const matchId = optionalString(formData.get("match_id"));
   const jobTypeValue = optionalString(formData.get("job_type")) ?? "sync_match_full";
-  const allowedTypes: AdminSyncJobType[] = ["sync_match_exact", "sync_match_bonus", "sync_match_full", "score_match"];
+  const allowedTypes: AdminSyncJobType[] = ["sync_match_exact", "sync_match_bonus", "sync_match_possession", "sync_match_scorers", "sync_match_home_lineup", "sync_match_away_lineup", "sync_match_full", "score_match"];
   const jobType = allowedTypes.includes(jobTypeValue as AdminSyncJobType) ? jobTypeValue as AdminSyncJobType : "sync_match_full";
 
   if (!matchId) redirect("/admin/matches?error=invalid_sync_review");
 
   try {
-    await queueAdminSyncJob({ jobType, matchId, requestedBy: admin.id, priority: jobType === "score_match" ? 25 : 75 });
+    let selectedJobType = jobType;
+    if (jobType === "sync_match_bonus") {
+      const { data: state } = await createAdminClient()
+        .from("match_provider_sync_state")
+        .select("possession_status,goal_events_status,lineup_home_status,lineup_away_status,next_sync_after")
+        .eq("match_id", matchId)
+        .maybeSingle<{ possession_status: string | null; goal_events_status: string | null; lineup_home_status: string | null; lineup_away_status: string | null; next_sync_after: string | null }>();
+      const missing = [
+        ["sync_match_possession", state?.possession_status],
+        ["sync_match_scorers", state?.goal_events_status],
+        ["sync_match_home_lineup", state?.lineup_home_status],
+        ["sync_match_away_lineup", state?.lineup_away_status],
+      ].filter(([, status]) => status !== "ready");
+      if (missing.length === 1) selectedJobType = missing[0][0] as AdminSyncJobType;
+    }
+
+    const { data: existingJob } = await createAdminClient()
+      .from("admin_sync_jobs")
+      .select("id")
+      .eq("match_id", matchId)
+      .eq("job_type", selectedJobType)
+      .in("status", ["queued", "running"])
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+    if (!existingJob) {
+      await queueAdminSyncJob({ jobType: selectedJobType, matchId, requestedBy: admin.id, priority: selectedJobType === "score_match" ? 25 : 75 });
+    }
   } catch (error) {
     console.error("queue match sync failed", error);
     redirect("/admin/matches?error=sync_failed");
@@ -201,7 +227,7 @@ export async function queueFinishedMatchesBatch() {
 export async function processSyncQueueNow() {
   await requireAdminUser("/admin/matches");
   try {
-    const result = await processAdminSyncJobs(2);
+    const result = await processAdminSyncJobs(1);
     revalidatePath("/admin/matches");
     revalidatePath("/dashboard");
     revalidatePath("/leaderboard");
@@ -218,7 +244,7 @@ export async function retryFailedSyncJobs() {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("admin_sync_jobs")
-    .update({ status: "queued", error_code: null, error_message: null, finished_at: null })
+    .update({ status: "queued", started_at: null, error_code: null, error_message: null, finished_at: null })
     .eq("status", "failed")
     .lt("attempts", 3);
   if (error) redirect("/admin/matches?error=sync_failed");

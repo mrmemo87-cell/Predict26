@@ -80,6 +80,8 @@ const MAX_RETRIES = BONUS_RETRY_DELAYS_MINUTES.length;
 const POST_MATCH_BATCH_SIZE = 10;
 const FINAL_STATUSES = new Set(["completed", "finished"]);
 const SCOREABLE_GOAL_TYPES = new Set(["goal", "penalty_goal"]);
+export type SyncMatchCategory = ProviderPostMatchReportCategory;
+
 const REPORT_CATEGORIES: ProviderPostMatchReportCategory[] = [
   "exact_result",
   "possession",
@@ -863,11 +865,17 @@ async function syncOneMatch(
   supabase: AdminClient,
   provider: FootballDataProvider,
   match: EligibleMatchRow,
+  options: { categories?: SyncMatchCategory[] } = {},
 ) {
   const mapping = firstRelation(match.provider_match_mappings);
   const existingState = firstRelation(match.sync_state);
   const runId = await createSyncRun(supabase, provider.name, match.id);
   const retryCount = (existingState?.retry_count ?? 0) + 1;
+  const requestedCategories = (options.categories?.length ? options.categories : REPORT_CATEGORIES)
+    .filter((category) => currentOrMissingStatuses(existingState)[category] !== "ready") as SyncMatchCategory[];
+  const effectiveCategories = requestedCategories.length > 0 ? requestedCategories : (options.categories?.length ? [] : REPORT_CATEGORIES);
+
+  if (options.categories?.length && effectiveCategories.length === 0) return "skipped" as const;
 
   const isOpenAiWebSearch = provider.name === "google-openai";
   const providerMatchId = mapping?.provider_match_id ?? (isOpenAiWebSearch ? match.id : null);
@@ -899,6 +907,7 @@ async function syncOneMatch(
       kickoffAt: match.kickoff_at,
       venue: match.venue,
       city: match.city,
+      categories: effectiveCategories.length > 0 ? effectiveCategories : options.categories,
     });
     if (!report) {
       const statuses = missingStatuses();
@@ -937,18 +946,24 @@ async function syncOneMatch(
       console.warn("provider player mapping load failed", error);
     }
     const statuses = validateReport(report, mappings);
+    if (options.categories?.length) {
+      const previousStatuses = currentOrMissingStatuses(existingState);
+      for (const category of REPORT_CATEGORIES) {
+        if (!effectiveCategories.includes(category)) statuses[category] = previousStatuses[category] as ProviderPostMatchReportCategoryStatus;
+      }
+    }
     if (hasSavedFinalScore(match)) {
       statuses.exact_result = "ready";
     }
     const lineupSquadDiagnostics = await loadLineupSquadDiagnostics(supabase, report, aliases);
     const lineupSuggestions = await loadLineupMappingSuggestions(supabase, report, aliases);
 
-    const exactApplied = await applyExactResult(supabase, match.id, report, statuses);
+    const exactApplied = effectiveCategories.includes("exact_result") || !options.categories?.length ? await applyExactResult(supabase, match.id, report, statuses) : false;
 
     const exactAlreadyScored = existingState?.exact_result_status === "ready";
     const exactReadyFromSavedScore = hasSavedFinalScore(match);
     let scored = false;
-    if (statuses.exact_result === "ready" && (!exactAlreadyScored || exactApplied || exactReadyFromSavedScore)) {
+    if (statuses.exact_result === "ready" && (!exactAlreadyScored || exactApplied || (exactReadyFromSavedScore && !exactAlreadyScored))) {
       await scoreFinishedMatch(match.id);
       scored = true;
     }
@@ -1250,6 +1265,7 @@ async function loadEligibleMatches(
 export async function syncFinishedMatches(
   provider: FootballDataProvider = DEFAULT_PROVIDER,
   matchId?: string,
+  options: { categories?: SyncMatchCategory[] } = {},
 ): Promise<PostMatchSyncResult> {
   const supabase = createAdminClient();
   const { eligible, batch } = await loadEligibleMatches(supabase, provider, matchId);
@@ -1266,7 +1282,7 @@ export async function syncFinishedMatches(
 
   for (const match of batch) {
     try {
-      const status = await syncOneMatch(supabase, provider, match);
+      const status = await syncOneMatch(supabase, provider, match, options);
       result.processed += 1;
       if (status === "scored") result.scored += 1;
       else if (status === "needs_review") result.needsReview += 1;

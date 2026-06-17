@@ -138,6 +138,6 @@ export interface FootballDataProvider {
   fetchMatches(): Promise<ProviderMatch[]>;
   fetchPostMatchReport?(
     providerMatchId: string,
-    context?: ProviderPostMatchReportContext,
+    context?: ProviderPostMatchReportContext & { categories?: ProviderPostMatchReportCategory[] },
   ): Promise<ProviderPostMatchReport | null>;
 }

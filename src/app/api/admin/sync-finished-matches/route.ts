@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { syncFinishedMatches } from "@/lib/football-data/postMatchSync";
+import { processAdminSyncJobs, queueEligibleFinishedBatch } from "@/lib/admin/syncJobs";
 
 export async function POST(request: Request) {
   const configuredSecret = process.env.CRON_SECRET;
 
   if (!configuredSecret) {
     return NextResponse.json(
-      { error: "CRON_SECRET is not configured; use the admin Sync finished matches action instead." },
+      { error: "CRON_SECRET is not configured; use the admin queue action instead." },
       { status: 501 },
     );
   }
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await syncFinishedMatches();
-  return NextResponse.json(result);
+  const queued = await queueEligibleFinishedBatch(null, 3);
+  const processed = await processAdminSyncJobs(1);
+  return NextResponse.json({ queued, processed });
 }
