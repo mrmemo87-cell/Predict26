@@ -25,6 +25,13 @@ type SearchParams = Promise<{
   failed?: string;
   skipped?: string;
   reviewed?: string;
+  already_queued?: string;
+  queued_label?: string;
+  message?: string;
+  job_id?: string;
+  job_status?: string;
+  job_match?: string;
+  job_result?: string;
   edit?: string;
 }>;
 
@@ -124,6 +131,7 @@ type AdminSyncJobRow = {
   updated_at: string;
   result: unknown;
   payload?: unknown;
+  matches?: { home_team_name: string | null; away_team_name: string | null; home_score: number | null; away_score: number | null } | Array<{ home_team_name: string | null; away_team_name: string | null; home_score: number | null; away_score: number | null }> | null;
 };
 
 type ReportRow = {
@@ -186,14 +194,15 @@ const ERROR_MESSAGES: Record<string, string> = {
   report_save_failed: "Could not update that report. Please try again.",
   invalid_bonus_readiness: "Choose a valid bonus readiness status before saving.",
   bonus_readiness_failed: "Could not update bonus data readiness. Please try again.",
-  sync_failed: "Could not queue or process the admin sync request. Provider failures are shown in the sync job panel below.",
+  sync_enqueue_failed: "Could not queue the admin sync request.",
+  sync_process_failed: "Could not process queued admin sync jobs.",
   invalid_sync_review: "Choose a valid match before marking it reviewed.",
   sync_review_failed: "Could not mark this match reviewed. Please try again.",
 };
 
-const friendlyError = (error: string) =>
-  ERROR_MESSAGES[error] ??
-  "Could not save changes. Please check the form and try again.";
+const friendlyError = (error: string, message?: string) =>
+  message || (ERROR_MESSAGES[error] ??
+  "Could not save changes. Please check the form and try again.");
 
 const formatPercent = (value: number | null) =>
   value === null ? "—" : `${value.toFixed(2)}%`;
@@ -203,6 +212,49 @@ const statusLabel = (status: string | null | undefined) =>
 
 const readinessMetadata = (readiness: BonusReadinessDiagnostics | undefined) =>
   readiness?.metadata ?? {};
+const JOB_LABELS: Record<string, string> = {
+  sync_match_possession: "Sync possession",
+  sync_match_scorers: "Sync scorers",
+  sync_match_home_lineup: "Sync Home XI",
+  sync_match_away_lineup: "Sync Away XI",
+  sync_match_bonus: "Sync bonus categories",
+  sync_match_full: "Full sync",
+  sync_match_exact: "Sync exact score",
+  score_match: "Score match",
+  sync_finished_batch: "Finished-match batch",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  exact_result: "exact score",
+  possession: "possession",
+  goal_events: "scorers",
+  lineup_home: "Home XI",
+  lineup_away: "Away XI",
+};
+
+const jobLabel = (job: AdminSyncJobRow) => {
+  const payload = metadataRecord(job.payload);
+  const categories = stringArray(payload.categories);
+  const suffix = categories.length > 0 ? ` · ${categories.map((category) => CATEGORY_LABELS[category] ?? statusLabel(category)).join(", ")}` : "";
+  return `${JOB_LABELS[job.job_type] ?? statusLabel(job.job_type)}${suffix}`;
+};
+
+const jobMatchLabel = (job: AdminSyncJobRow) => {
+  if (!job.match_id) return "Batch job";
+  const match = firstRelation(job.matches);
+  if (!match) return "Match details unavailable";
+  const score = match.home_score !== null && match.away_score !== null ? ` · ${match.home_score}-${match.away_score}` : "";
+  return `${match.home_team_name ?? "Team TBA"} vs ${match.away_team_name ?? "Team TBA"}${score}`;
+};
+
+const resultSummary = (result: unknown) => {
+  const record = metadataRecord(result);
+  const parts = ["processed", "failed", "needsReview", "scored", "skipped"].flatMap((key) =>
+    typeof record[key] === "number" ? [`${statusLabel(key)} ${record[key]}`] : [],
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
+};
+
 
 const metadataRecord = (metadata: unknown): Record<string, unknown> => {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
@@ -766,7 +818,7 @@ export default async function AdminMatchManagerPage({
     supabase.from("countries").select("code, flag_emoji"),
     supabase
       .from("admin_sync_jobs")
-      .select("id, job_type, match_id, status, attempts, max_attempts, error_code, error_message, created_at, started_at, finished_at, updated_at, result, payload")
+      .select("id, job_type, match_id, status, attempts, max_attempts, error_code, error_message, created_at, started_at, finished_at, updated_at, result, payload, matches(home_team_name, away_team_name, home_score, away_score)")
       .order("created_at", { ascending: false })
       .limit(50),
   ]);
@@ -846,12 +898,23 @@ export default async function AdminMatchManagerPage({
   const fullyScoredCount = matchRows.filter((match) => syncState(match)?.status === "fully_scored").length;
   const bonusPendingCount = matchRows.filter((match) => syncState(match)?.status === "bonus_pending").length;
   const reviewCount = matchRows.filter((match) => syncState(match)?.status === "needs_review").length;
+  const adminNow = new Date();
+  const queuedJobCount = jobRows.filter((job) => job.status === "queued").length;
+  const runningJobCount = jobRows.filter((job) => job.status === "running").length;
+  const partialJobCount = jobRows.filter((job) => job.status === "partial").length;
   const failedJobCount = jobRows.filter((job) => job.status === "failed").length;
-  const runningJobCount = jobRows.filter((job) => job.status === "running" || job.status === "queued").length;
-  const nextRetry = matchRows
-    .map((match) => syncState(match)?.next_sync_after)
-    .filter((value): value is string => Boolean(value))
-    .sort()[0] ?? null;
+  const staleRunningCount = jobRows.filter((job) => job.status === "running" && job.started_at && adminNow.getTime() - new Date(job.started_at).getTime() > 15 * 60_000).length;
+  const retryCandidates = matchRows.flatMap((match) => {
+    const state = syncState(match);
+    if (!state?.next_sync_after) return [];
+    if (["fully_scored", "corrected_rescored"].includes(state.status ?? "")) return [];
+    const unresolved = [state.possession_status, state.goal_events_status, state.lineup_home_status, state.lineup_away_status].some((status) => status && status !== "ready");
+    return unresolved ? [{ at: state.next_sync_after, match }] : [];
+  }).sort((a, b) => a.at.localeCompare(b.at));
+  const nextFutureRetry = retryCandidates.find((candidate) => new Date(candidate.at).getTime() > adminNow.getTime()) ?? null;
+  const hasPastRetry = retryCandidates.some((candidate) => new Date(candidate.at).getTime() <= adminNow.getTime());
+  const nextRetryLabel = nextFutureRetry ? formatAdminDate(nextFutureRetry.at) : hasPastRetry ? "Retry available now." : "No scheduled retries.";
+  const nextRetrySource = nextFutureRetry ? `${nextFutureRetry.match.home_team_name ?? "Team TBA"} vs ${nextFutureRetry.match.away_team_name ?? "Team TBA"}` : hasPastRetry ? "past retry window" : "none";
   const playedCount = matchRows.filter((match) => match.status === "finished" || Boolean(postMatchReadyAt(match.kickoff_at) && postMatchReadyAt(match.kickoff_at)! <= new Date())).length;
   const attentionMatches = matchRows.filter((match) => {
     const summary = scoringSummaries[match.id] ?? { predictions: 0, scoredPredictions: 0, pointsApplied: 0 };
@@ -930,8 +993,11 @@ export default async function AdminMatchManagerPage({
         )}
         {params.queued && (
           <div className="mb-5 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-700">
-            Queued {params.queued} sync job(s). {params.remaining ? `${params.remaining} eligible match(es) remain for a later batch.` : "Use Process queue now to run a small worker batch."}
+            {params.queued_label ? `Queued: ${params.queued_label}.` : `Queued ${params.queued} sync job(s).`} {params.remaining ? `${params.remaining} eligible match(es) remain for a later batch.` : "Use Process queue now to run one job."}
           </div>
+        )}
+        {params.already_queued && (
+          <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">Already queued: {params.already_queued}</div>
         )}
         {params.reviewed && (
           <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
@@ -945,7 +1011,7 @@ export default async function AdminMatchManagerPage({
         )}
         {params.error && (
           <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {friendlyError(params.error)}
+            {friendlyError(params.error, params.message)}
           </div>
         )}
 
@@ -958,7 +1024,7 @@ export default async function AdminMatchManagerPage({
             ["Waiting admin review", reviewCount],
             ["Failed syncs", failedJobCount],
             ["Sync queue running", runningJobCount],
-            ["Next scheduled retry", nextRetry ? formatAdminDate(nextRetry) : "—"],
+            ["Next scheduled retry", nextRetryLabel],
           ].map(([label, value]) => (
             <div key={label} className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">{label}</p>
@@ -967,6 +1033,18 @@ export default async function AdminMatchManagerPage({
           ))}
         </section>
 
+        <details className="mb-8 rounded-3xl border border-gray-200 bg-white p-4 text-sm text-gray-600 shadow-sm">
+          <summary className="cursor-pointer font-bold text-gray-900">Command-center diagnostics</summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <p>Current time: {formatAdminDate(adminNow.toISOString())}</p>
+            <p>Queued count: {queuedJobCount}</p>
+            <p>Running count: {runningJobCount}</p>
+            <p>Stale running count: {staleRunningCount}</p>
+            <p>Failed count: {failedJobCount}</p>
+            <p>Next retry source: {nextRetrySource}</p>
+            <p>Latest action result: {params.processed ? `Processed ${params.processed} job(s)${params.job_match ? ` · ${params.job_match}` : ""}${params.job_status ? ` · ${params.job_status}` : ""}${params.job_result ? ` · ${params.job_result}` : ""}` : params.queued_label ? `Queued ${params.queued_label}` : params.already_queued ? `Already queued ${params.already_queued}` : "None"}</p>
+          </div>
+        </details>
 
         <section className="mb-8 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -974,25 +1052,32 @@ export default async function AdminMatchManagerPage({
               <h2 className="text-2xl font-bold text-gray-900">Sync job panel</h2>
               <p className="mt-1 text-sm text-gray-500">Admin buttons enqueue work immediately. Process queue runs a tiny batch and records per-job partial/failed results here.</p>
             </div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">Queued · running · completed · partial · failed</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-400">Queued {queuedJobCount} · Running {runningJobCount} · Partial {partialJobCount} · Failed {failedJobCount}</p>
           </div>
           <div className="mt-4 space-y-3">
             {jobRows.slice(0, 12).map((job) => {
-              const jobResult = metadataRecord(job.result);
-              const processed = Array.isArray(jobResult.processed) ? jobResult.processed : [];
+              const summary = resultSummary(job.result);
               const partialText = job.status === "partial"
-                ? (job.error_message ?? "Exact scored, bonus still pending or one requested category still needs review.")
+                ? (job.error_message ?? "Requested work finished partially; review remaining category blockers on the match.")
                 : job.error_message;
               return (
                 <article key={job.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-sm font-black text-gray-900">{statusLabel(job.job_type)} · <span className="capitalize">{statusLabel(job.status)}</span></p>
+                      <p className="text-sm font-black text-gray-900">{jobMatchLabel(job)}</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-700">{jobLabel(job)} · <span className="capitalize">{statusLabel(job.status)}</span></p>
                       <p className="text-xs text-gray-500">Created {formatAdminDate(job.created_at)} · attempts {job.attempts}/{job.max_attempts}</p>
+                      <p className="text-xs text-gray-500">Started {job.started_at ? formatAdminDate(job.started_at) : "—"} · Finished {job.finished_at ? formatAdminDate(job.finished_at) : "—"}</p>
+                      {summary && <p className="mt-1 text-xs text-gray-600">Result: {summary}</p>}
                       {partialText && <p className="mt-1 text-xs font-semibold text-amber-800">{partialText}</p>}
-                      {processed.length > 0 && <p className="mt-1 text-xs text-gray-600">Result: {processed.map((item) => statusLabel(String(metadataRecord(item).status ?? "processed"))).join(", ")}</p>}
+                      {job.match_id && !firstRelation(job.matches) && <p className="mt-1 text-xs text-gray-400">Technical details: match_id {job.match_id}</p>}
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${job.status === "failed" ? "bg-rose-100 text-rose-700" : job.status === "partial" ? "bg-amber-100 text-amber-800" : job.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>{statusLabel(job.status)}</span>
+                    <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${job.status === "failed" ? "bg-rose-100 text-rose-700" : job.status === "partial" ? "bg-amber-100 text-amber-800" : job.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>{statusLabel(job.status)}</span>
+                      {job.match_id && <Link href={`/admin/matches?edit=${job.match_id}`} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-bold text-gray-700">View match</Link>}
+                      {job.status === "failed" && job.match_id && <form action={queueMatchSync}><input type="hidden" name="match_id" value={job.match_id} /><input type="hidden" name="job_type" value={job.job_type} /><PendingSubmitButton idleText="Retry" pendingText="Queueing..." className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700" /></form>}
+                      {job.status === "queued" && <form action={processSyncQueueNow}><PendingSubmitButton idleText="Process now" pendingText="Processing..." className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700" /></form>}
+                    </div>
                   </div>
                 </article>
               );

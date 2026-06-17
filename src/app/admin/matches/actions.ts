@@ -166,6 +166,25 @@ export async function saveMatch(formData: FormData) {
 }
 
 
+const bonusCategoryJobs = [
+  { jobType: "sync_match_possession" as const, category: "possession", stateKey: "possession_status", label: "Sync possession" },
+  { jobType: "sync_match_scorers" as const, category: "goal_events", stateKey: "goal_events_status", label: "Sync scorers" },
+  { jobType: "sync_match_home_lineup" as const, category: "lineup_home", stateKey: "lineup_home_status", label: "Sync Home XI" },
+  { jobType: "sync_match_away_lineup" as const, category: "lineup_away", stateKey: "lineup_away_status", label: "Sync Away XI" },
+];
+
+const jobDisplayLabel = (jobType: AdminSyncJobType) => ({
+  sync_match_possession: "Sync possession",
+  sync_match_scorers: "Sync scorers",
+  sync_match_home_lineup: "Sync Home XI",
+  sync_match_away_lineup: "Sync Away XI",
+  sync_match_bonus: "Sync bonus categories",
+  sync_match_full: "Full sync",
+  sync_match_exact: "Sync exact score",
+  score_match: "Score match",
+  sync_finished_batch: "Finished-match batch",
+}[jobType] ?? jobType);
+
 export async function queueMatchSync(formData: FormData) {
   const admin = await requireAdminUser("/admin/matches");
   const matchId = optionalString(formData.get("match_id"));
@@ -176,40 +195,50 @@ export async function queueMatchSync(formData: FormData) {
   if (!matchId) redirect("/admin/matches?error=invalid_sync_review");
 
   try {
+    const supabase = createAdminClient();
     let selectedJobType = jobType;
+    let payload: Record<string, unknown> = {};
     if (jobType === "sync_match_bonus") {
-      const { data: state } = await createAdminClient()
+      const { data: state } = await supabase
         .from("match_provider_sync_state")
         .select("possession_status,goal_events_status,lineup_home_status,lineup_away_status,next_sync_after")
         .eq("match_id", matchId)
-        .maybeSingle<{ possession_status: string | null; goal_events_status: string | null; lineup_home_status: string | null; lineup_away_status: string | null; next_sync_after: string | null }>();
-      const missing = [
-        ["sync_match_possession", state?.possession_status],
-        ["sync_match_scorers", state?.goal_events_status],
-        ["sync_match_home_lineup", state?.lineup_home_status],
-        ["sync_match_away_lineup", state?.lineup_away_status],
-      ].filter(([, status]) => status !== "ready");
-      if (missing.length === 1) selectedJobType = missing[0][0] as AdminSyncJobType;
+        .maybeSingle<Record<string, string | null>>();
+      const missing = bonusCategoryJobs.filter((item) => state?.[item.stateKey] !== "ready");
+      if (missing.length === 1) {
+        selectedJobType = missing[0].jobType;
+        payload = { categories: [missing[0].category] };
+      } else if (missing.length > 1) {
+        payload = { categories: missing.map((item) => item.category) };
+      }
     }
 
-    const { data: existingJob } = await createAdminClient()
+    const selectedCategories = Array.isArray(payload.categories) ? payload.categories as string[] : [];
+    const { data: activeJobs } = await supabase
       .from("admin_sync_jobs")
-      .select("id")
+      .select("id, job_type, payload")
       .eq("match_id", matchId)
-      .eq("job_type", selectedJobType)
-      .in("status", ["queued", "running"])
-      .limit(1)
-      .maybeSingle<{ id: string }>();
-    if (!existingJob) {
-      await queueAdminSyncJob({ jobType: selectedJobType, matchId, requestedBy: admin.id, priority: selectedJobType === "score_match" ? 25 : 75 });
-    }
-  } catch (error) {
-    console.error("queue match sync failed", error);
-    redirect("/admin/matches?error=sync_failed");
-  }
+      .in("status", ["queued", "running"]);
+    const duplicate = ((activeJobs ?? []) as Array<{ id: string; job_type: AdminSyncJobType; payload?: Record<string, unknown> | null }>).find((job) => {
+      if (job.job_type !== selectedJobType) return false;
+      const existingCategories = Array.isArray(job.payload?.categories) ? job.payload.categories as string[] : [];
+      if (selectedCategories.length === 0 && existingCategories.length === 0) return true;
+      return selectedCategories.length === existingCategories.length && selectedCategories.every((category) => existingCategories.includes(category));
+    });
 
-  revalidatePath("/admin/matches");
-  redirect("/admin/matches?queued=1");
+    const { data: match } = await supabase.from("matches").select("home_team_name, away_team_name").eq("id", matchId).maybeSingle<{ home_team_name: string | null; away_team_name: string | null }>();
+    const matchLabel = `${match?.home_team_name ?? "Team TBA"} vs ${match?.away_team_name ?? "Team TBA"}`;
+    if (duplicate) {
+      redirect(`/admin/matches?already_queued=${encodeURIComponent(`${jobDisplayLabel(selectedJobType)} for ${matchLabel}`)}`);
+    }
+    await queueAdminSyncJob({ jobType: selectedJobType, matchId, requestedBy: admin.id, priority: selectedJobType === "score_match" ? 25 : 75, payload });
+    redirect(`/admin/matches?queued=1&queued_label=${encodeURIComponent(`${jobDisplayLabel(selectedJobType)} for ${matchLabel}`)}`);
+  } catch (error) {
+    if (error instanceof Error && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) throw error;
+    console.error("queue match sync failed", error);
+    const message = error instanceof Error ? error.message : "Could not queue admin sync job.";
+    redirect(`/admin/matches?error=sync_enqueue_failed&message=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function queueFinishedMatchesBatch() {
@@ -220,7 +249,7 @@ export async function queueFinishedMatchesBatch() {
     redirect(`/admin/matches?queued=${result.queued}&remaining=${result.remainingEligible}`);
   } catch (error) {
     console.error("queue batch failed", error);
-    redirect("/admin/matches?error=sync_failed");
+    redirect(`/admin/matches?error=sync_enqueue_failed&message=${encodeURIComponent(error instanceof Error ? error.message : "Could not queue eligible matches.")}`);
   }
 }
 
@@ -232,10 +261,12 @@ export async function processSyncQueueNow() {
     revalidatePath("/dashboard");
     revalidatePath("/leaderboard");
     revalidatePath("/predictions");
-    redirect(`/admin/matches?processed=${result.picked}`);
+    const first = result.processed[0];
+    const detail = first ? `&job_id=${encodeURIComponent(first.id)}&job_status=${encodeURIComponent(first.status)}&job_match=${encodeURIComponent(first.matchLabel)}${first.resultSummary ? `&job_result=${encodeURIComponent(first.resultSummary)}` : ""}` : "";
+    redirect(`/admin/matches?processed=${result.picked}${detail}`);
   } catch (error) {
     console.error("process sync queue failed", error);
-    redirect("/admin/matches?error=sync_failed");
+    redirect(`/admin/matches?error=sync_process_failed&message=${encodeURIComponent(error instanceof Error ? error.message : "Could not process queued sync job.")}`);
   }
 }
 
