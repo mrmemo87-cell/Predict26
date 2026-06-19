@@ -16,6 +16,17 @@ const BONUS_READINESS_CATEGORIES = ["possession", "goal_events", "lineup_home", 
 type MatchStatus = (typeof MATCH_STATUSES)[number];
 type ReportStatus = (typeof REPORT_STATUSES)[number];
 
+const isNextRedirectError = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "digest" in error &&
+  String((error as { digest?: unknown }).digest).startsWith("NEXT_REDIRECT");
+
+const safeAdminErrorMessage = (error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("NEXT_REDIRECT") ? fallback : (message || fallback);
+};
+
 const optionalString = (value: FormDataEntryValue | null) => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -234,27 +245,37 @@ export async function queueMatchSync(formData: FormData) {
     await queueAdminSyncJob({ jobType: selectedJobType, matchId, requestedBy: admin.id, priority: selectedJobType === "score_match" ? 25 : 75, payload });
     redirect(`/admin/matches?queued=1&queued_label=${encodeURIComponent(`${jobDisplayLabel(selectedJobType)} for ${matchLabel}`)}`);
   } catch (error) {
-    if (error instanceof Error && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) throw error;
+    if (isNextRedirectError(error)) throw error;
     console.error("queue match sync failed", error);
-    const message = error instanceof Error ? error.message : "Could not queue admin sync job.";
+    const message = safeAdminErrorMessage(error, "Could not queue admin sync job.");
     redirect(`/admin/matches?error=sync_enqueue_failed&message=${encodeURIComponent(message)}`);
   }
 }
 
 export async function queueFinishedMatchesBatch() {
   const admin = await requireAdminUser("/admin/matches");
+  let redirectUrl = "/admin/matches?info=no_queued_jobs";
+
   try {
     const result = await queueEligibleFinishedBatch(admin.id, 8);
     revalidatePath("/admin/matches");
-    redirect(`/admin/matches?queued=${result.queued}&remaining=${result.remainingEligible}`);
+    redirectUrl = result.queued > 0
+      ? `/admin/matches?success=sync_process_queued&queued=${result.queued}&remaining=${result.remainingEligible}`
+      : `/admin/matches?info=no_queued_jobs&remaining=${result.remainingEligible}`;
   } catch (error) {
+    if (isNextRedirectError(error)) throw error;
     console.error("queue batch failed", error);
-    redirect(`/admin/matches?error=sync_enqueue_failed&message=${encodeURIComponent(error instanceof Error ? error.message : "Could not queue eligible matches.")}`);
+    const message = safeAdminErrorMessage(error, "Could not queue eligible matches.");
+    redirectUrl = `/admin/matches?error=sync_enqueue_failed&message=${encodeURIComponent(message)}`;
   }
+
+  redirect(redirectUrl);
 }
 
 export async function processSyncQueueNow() {
   await requireAdminUser("/admin/matches");
+  let redirectUrl = "/admin/matches?info=no_queued_jobs";
+
   try {
     const result = await processAdminSyncJobs(1);
     revalidatePath("/admin/matches");
@@ -263,12 +284,19 @@ export async function processSyncQueueNow() {
     revalidatePath("/predictions");
     const first = result.processed[0];
     const detail = first ? `&job_id=${encodeURIComponent(first.id)}&job_status=${encodeURIComponent(first.status)}&job_match=${encodeURIComponent(first.matchLabel)}${first.resultSummary ? `&job_result=${encodeURIComponent(first.resultSummary)}` : ""}` : "";
-    redirect(`/admin/matches?processed=${result.picked}${detail}`);
+    redirectUrl = result.picked > 0
+      ? `/admin/matches?success=sync_process_completed&processed=${result.picked}${detail}`
+      : "/admin/matches?info=no_queued_jobs";
   } catch (error) {
+    if (isNextRedirectError(error)) throw error;
     console.error("process sync queue failed", error);
-    redirect(`/admin/matches?error=sync_process_failed&message=${encodeURIComponent(error instanceof Error ? error.message : "Could not process queued sync job.")}`);
+    const message = safeAdminErrorMessage(error, "Could not process queued sync job.");
+    redirectUrl = `/admin/matches?error=sync_process_failed&message=${encodeURIComponent(message)}`;
   }
+
+  redirect(redirectUrl);
 }
+
 
 export async function retryFailedSyncJobs() {
   await requireAdminUser("/admin/matches");
