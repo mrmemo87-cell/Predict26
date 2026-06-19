@@ -11,6 +11,8 @@ import { BONUS_READINESS_STATUSES, getMatchBonusReadinessMap, type BonusReadines
 
 type SearchParams = Promise<{
   error?: string;
+  info?: string;
+  success?: string;
   saved?: string;
   report_saved?: string;
   scored?: string;
@@ -200,9 +202,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   sync_review_failed: "Could not mark this match reviewed. Please try again.",
 };
 
+const isInternalFrameworkMessage = (message: string | undefined) =>
+  typeof message === "string" && message.includes("NEXT_REDIRECT");
+
 const friendlyError = (error: string, message?: string) =>
-  message || (ERROR_MESSAGES[error] ??
-  "Could not save changes. Please check the form and try again.");
+  isInternalFrameworkMessage(message)
+    ? (ERROR_MESSAGES[error] ?? "Could not save changes. Please check the form and try again.")
+    : (message || (ERROR_MESSAGES[error] ??
+      "Could not save changes. Please check the form and try again."));
 
 const formatPercent = (value: number | null) =>
   value === null ? "—" : `${value.toFixed(2)}%`;
@@ -993,7 +1000,17 @@ export default async function AdminMatchManagerPage({
         )}
         {params.queued && (
           <div className="mb-5 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-700">
-            {params.queued_label ? `Queued: ${params.queued_label}.` : `Queued ${params.queued} sync job(s).`} {params.remaining ? `${params.remaining} eligible match(es) remain for a later batch.` : "Use Process queue now to run one job."}
+            {params.queued_label ? `Queued: ${params.queued_label}.` : `Queued ${params.queued} sync job${params.queued === "1" ? "" : "s"}.`} {params.remaining ? `${params.remaining} eligible match(es) remain for a later batch.` : "Use Process queue now to run one job."}
+          </div>
+        )}
+        {params.info === "no_queued_jobs" && (
+          <div className="mb-5 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-700">
+            No queued jobs to process.
+          </div>
+        )}
+        {params.success === "sync_process_completed" && params.processed && (
+          <div className="mb-5 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+            Processed {params.processed} job{params.processed === "1" ? "" : "s"}{params.job_match ? `: ${params.job_match}` : ""}{params.job_status ? ` · ${params.job_status}` : ""}{params.job_result ? ` · ${params.job_result}` : ""}.
           </div>
         )}
         {params.already_queued && (
@@ -1009,7 +1026,7 @@ export default async function AdminMatchManagerPage({
             This match has already been scored.
           </div>
         )}
-        {params.error && (
+        {params.error && !isInternalFrameworkMessage(params.message) && (
           <div className="mb-5 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
             {friendlyError(params.error, params.message)}
           </div>
